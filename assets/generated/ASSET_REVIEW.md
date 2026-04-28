@@ -12,8 +12,8 @@
 
 ## What was changed
 - Cleaned generated sheets into transparent PNGs.
-- Sliced every sheet into components under `assets/generated/slices/`.
+- Raw auto-sliced components were used during QA but are not shipped in the production package.
 - Created curated, named gameplay sprites under `assets/generated/curated/`.
-- Added `assets/generated/atlas_manifest.json` describing full sheets, curated sprites, and component coordinates.
+- Added `assets/generated/atlas_manifest.json` describing full sheets, curated sprites, and production cleanup notes.
 - Updated the game renderer to use generated assets with procedural fallback if assets fail to load.
 - Added in-game generated asset viewer: press `V`, use `[` and `]` to page sheets.

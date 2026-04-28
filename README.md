@@ -6,7 +6,7 @@ This build uses **original generated pixel-art assets** created for the prototyp
 
 ## Run locally
 
-Open `index.html` in a browser.
+Open `index.html` in a modern browser. This build uses ES modules, so a local server is recommended for the most reliable asset loading.
 
 Optional local server:
 
@@ -74,18 +74,21 @@ Then open `http://localhost:8080`.
 
 ## Generated asset structure
 
-- `assets/generated/sheets/` — the full generated spritesheets.
-- `assets/generated/slices/` — every sheet automatically broken into transparent component PNGs.
 - `assets/generated/curated/` — named, resized sprites used directly by the game.
-- `assets/generated/previews/` — numbered contact sheets used for QA and mapping.
-- `assets/generated/atlas_manifest.json` — sheet paths, component coordinates and curated sprite metadata.
+- `assets/generated/sheets/` — source spritesheets retained for the in-game asset viewer.
+- `assets/generated/atlas_manifest.json` — runtime sheet paths and curated sprite metadata. Raw preview/contact-sheet and auto-slice folders were removed from the production package.
 - `assets/generated/ASSET_REVIEW.md` — perspective/style review and integration notes.
 
 ## Main files
 
 - `index.html` — static game page
 - `style.css` — full-screen canvas and boot overlay styling
-- `src/main.js` — game loop, rendering, AI, crafting, world generation, input and save/load
-- `assets/generated/` — generated spritesheets, slices, curated sprites and QA manifests
+- `src/main.js` — browser bootstrap
+- `src/engine/shared.js` — constants, recipes, generated asset map and utilities
+- `src/engine/input.js` — keyboard/mouse input
+- `src/engine/art.js` — rendering, sprites, tiles, icons and UI drawing
+- `src/engine/world.js` — world generation, collision, pathfinding and serialization
+- `src/engine/game.js` — game loop, combat, AI, crafting, progression and save/load
+- `assets/generated/` — generated curated sprites, retained sheets and runtime manifest
 - `tools/prepare_generated_assets.py` — rebuilds generated asset folders from the generated sheets
 - `tools/patch_game_with_assets.py` — documents/automates the renderer patching workflow used for this build
