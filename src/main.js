@@ -1,7 +1,12 @@
 (() => {
 'use strict';
 
-const TILE = 32;
+const TILE = 36;
+const USE_CURATED_UI_TEXTURES = false;
+const PLAYER_DRAW_HEIGHT = 44;
+const MONKEY_DRAW_HEIGHT = 36;
+const GOBLIN_DRAW_HEIGHT = 48;
+const BOSS_DRAW_HEIGHT = 72;
 const WORLD_W = 96;
 const WORLD_H = 96;
 const SAVE_KEY = 'castaway_mimics_save_v1';
@@ -320,6 +325,19 @@ function addToBag(bag, id, qty=1){ bag[id] = (bag[id] || 0) + qty; if (bag[id] <
 function hasCost(bag, cost){ return Object.entries(cost).every(([k,v]) => (bag[k]||0) >= v); }
 function payCost(bag, cost){ if (!hasCost(bag, cost)) return false; for (const [k,v] of Object.entries(cost)) addToBag(bag, k, -v); return true; }
 function bagSummary(bag){ return Object.entries(bag).filter(([,v])=>v>0).map(([k,v])=>`${v}× ${itemName(k)}`).join(', '); }
+function wrapTextLines(ctx, text, maxWidth){
+  const words = String(text).split(/\s+/).filter(Boolean);
+  if (!words.length) return [''];
+  const lines = [];
+  let line = words.shift();
+  for (const word of words){
+    const test = `${line} ${word}`;
+    if (ctx.measureText(test).width <= maxWidth) line = test;
+    else { lines.push(line); line = word; }
+  }
+  lines.push(line);
+  return lines;
+}
 
 class Input {
   constructor(canvas){
@@ -389,7 +407,11 @@ class Art {
   drawAsset(ctx,id,x,y,opts={}){
     const img=this.sprites[id]; if(!img) return false;
     const scale=opts.scale ?? 1, alpha=opts.alpha ?? 1;
-    const w=Math.round(opts.w || img.width*scale), h=Math.round(opts.h || img.height*scale);
+    let w, h;
+    if(opts.w && opts.h){ w=Math.round(opts.w); h=Math.round(opts.h); }
+    else if(opts.w){ w=Math.round(opts.w); h=Math.round(opts.w * (img.height / img.width)); }
+    else if(opts.h){ h=Math.round(opts.h); w=Math.round(opts.h * (img.width / img.height)); }
+    else { w=Math.round(img.width*scale); h=Math.round(img.height*scale); }
     const anchor=opts.anchor || 'center';
     let dx=Math.round(x-w/2), dy=Math.round(y-h/2);
     if(anchor==='ground') dy=Math.round(y-h);
@@ -401,7 +423,27 @@ class Art {
     ctx.restore();
     return true;
   }
-  drawTileAsset(ctx,id,x,y){ const img=this.sprites[id]; if(!img) return false; ctx.drawImage(img,Math.round(x),Math.round(y),TILE,TILE); return true; }
+  drawCharacterAsset(ctx,id,x,y,opts={}){
+    const img=this.sprites[id]; if(!img) return false;
+    const cropBottom=Math.max(0, opts.cropBottom ?? 2);
+    const sw=img.width, sh=Math.max(1, img.height-cropBottom);
+    const alpha=opts.alpha ?? 1;
+    let w, h;
+    if(opts.w && opts.h){ w=Math.round(opts.w); h=Math.round(opts.h); }
+    else if(opts.w){ w=Math.round(opts.w); h=Math.round(opts.w * (sh / sw)); }
+    else if(opts.h){ h=Math.round(opts.h); w=Math.round(opts.h * (sw / sh)); }
+    else { const scale=opts.scale ?? 1; w=Math.round(sw*scale); h=Math.round(sh*scale); }
+    const anchor=opts.anchor || 'center';
+    let dx=Math.round(x-w/2), dy=Math.round(y-h/2);
+    if(anchor==='ground') dy=Math.round(y-h);
+    else if(anchor==='topleft'){ dx=Math.round(x); dy=Math.round(y); }
+    ctx.save(); ctx.globalAlpha*=alpha;
+    if(opts.flip){ ctx.translate(dx+w,dy); ctx.scale(-1,1); ctx.drawImage(img,0,0,sw,sh,0,0,w,h); }
+    else ctx.drawImage(img,0,0,sw,sh,dx,dy,w,h);
+    ctx.restore();
+    return true;
+  }
+  drawTileAsset(ctx,id,x,y){ const img=this.sprites[id]; if(!img) return false; const dx=Math.floor(x), dy=Math.floor(y); ctx.drawImage(img,dx,dy,TILE+1,TILE+1); return true; }
   px(ctx,x,y,w,h,c){ ctx.fillStyle=c; ctx.fillRect(Math.round(x),Math.round(y),Math.round(w),Math.round(h)); }
   makeTiles(){
     const types = ['grass','grass2','sand','water','shallow','stone','path','swamp','ash','lava','floor','walltile'];
@@ -479,16 +521,18 @@ class Art {
       if(attackCd>0){
         if(tool==='axe') id='player_axe'; else if(tool==='pickaxe') id='player_pickaxe'; else if(tool==='hammer') id='player_hammer'; else if(tool==='sword'||tool==='metal_sword') id='player_sword';
       }
-      const flip = dir==='side' && facing==='left';
+      const sideLike = dir==='side' || attackCd>0;
+      const flip = sideLike && facing==='right';
+      const facingSign = facing==='left' ? -1 : 1;
       this.shadow(ctx,x,y+4,16,5,.22);
-      if(this.drawAsset(ctx,id,x,y+10,{anchor:'ground',flip})){
-        if(attackCd>0 && (tool==='sword'||tool==='metal_sword')) this.drawAsset(ctx,'fx_slash_0',x+(flip?-20:20),y-20,{anchor:'center',flip,alpha:.82});
+      if(this.drawCharacterAsset(ctx,id,x,y+10,{anchor:'ground',flip,h:PLAYER_DRAW_HEIGHT,cropBottom:2})){
+        if(attackCd>0 && (tool==='sword'||tool==='metal_sword')) this.drawAsset(ctx,'fx_slash_0',x+facingSign*20,y-20,{anchor:'center',flip:facing==='left',alpha:.82,h:28});
         if(charge>0){ ctx.save(); ctx.strokeStyle=`rgba(255,216,90,${.25+charge*.5})`; ctx.lineWidth=2+charge*4; ctx.beginPath(); ctx.arc(x,y-14,18+charge*8,0,TWO_PI); ctx.stroke(); ctx.restore(); }
         return;
       }
     }
     this.shadow(ctx,x,y+3,16,6,.28);
-    ctx.save(); ctx.translate(Math.round(x),Math.round(y));
+    ctx.save(); ctx.translate(Math.round(x),Math.round(y)); if(dir==='side' && facing==='left'){ ctx.scale(-1,1); }
     const bob = Math.sin(walk*8)*1.5;
     const step = Math.sin(walk*8) > 0 ? 1 : -1;
     // legs
@@ -518,16 +562,16 @@ class Art {
     if(this.assetsReady){
       let id = entity?.carry ? 'monkey_carry' : (order?.type==='combat' ? 'monkey_attack' : `monkey_walk_${Math.floor(walk*7)%3}`);
       if(!entity || (!entity.carry && !order && Math.floor(walk*7)%3===0)) id='monkey_down';
-      const flip = entity?.facing==='left';
+      const flip = entity?.facing==='right';
       this.shadow(ctx,x,y+3,12,4,.22);
-      if(this.drawAsset(ctx,id,x,y+8,{anchor:'ground',flip})){
+      if(this.drawCharacterAsset(ctx,id,x,y+8,{anchor:'ground',flip,h:MONKEY_DRAW_HEIGHT,cropBottom:2})){
         if(order){ ctx.save(); ctx.fillStyle='rgba(255,255,255,.95)'; ctx.beginPath(); ctx.arc(x+15,y-32,8,0,TWO_PI); ctx.fill(); ctx.strokeStyle=COLORS.ink; ctx.lineWidth=2; ctx.stroke(); this.drawMiniTaskIcon(ctx,x+15,y-32,order.type); ctx.restore(); }
         if(selected){ ctx.save(); ctx.strokeStyle=COLORS.yellow; ctx.lineWidth=3; ctx.beginPath(); ctx.arc(x,y-9,22,0,TWO_PI); ctx.stroke(); ctx.restore(); }
         return;
       }
     }
     this.shadow(ctx,x,y+2,13,5,.25);
-    ctx.save(); ctx.translate(Math.round(x),Math.round(y));
+    ctx.save(); ctx.translate(Math.round(x),Math.round(y)); if(entity?.facing==='left'){ ctx.scale(-1,1); }
     const bob = Math.sin(walk*7)*1.5;
     ctx.strokeStyle='#6b3b24'; ctx.lineWidth=4; ctx.beginPath(); ctx.arc(-13,-14,8,Math.PI*.1,Math.PI*1.7); ctx.stroke();
     ctx.fillStyle='#81492b'; ctx.beginPath(); ctx.ellipse(0,-5+bob,9,10,0,0,TWO_PI); ctx.fill(); ctx.strokeStyle=COLORS.ink; ctx.lineWidth=2; ctx.stroke();
@@ -556,12 +600,12 @@ class Art {
     if(this.assetsReady){
       const attacking = entity && entity.attackCd > (boss ? .6 : .45);
       const id = boss ? (attacking?'boss_attack':(entity?.facing==='left'||entity?.facing==='right'?'boss_side':'boss_down')) : (attacking?'goblin_attack':(entity?.facing==='left'||entity?.facing==='right'?'goblin_side':'goblin_down'));
-      const flip = entity?.facing==='left';
+      const flip = entity?.facing==='right';
       this.shadow(ctx,x,y+4,boss?24:15,boss?7:5,.3);
-      if(this.drawAsset(ctx,id,x,y+9,{anchor:'ground',flip})) return;
+      if(this.drawCharacterAsset(ctx,id,x,y+9,{anchor:'ground',flip,h:boss?BOSS_DRAW_HEIGHT:GOBLIN_DRAW_HEIGHT,cropBottom:2})) return;
     }
     this.shadow(ctx,x,y+3,boss?24:15,boss?8:5,.32);
-    ctx.save(); ctx.translate(Math.round(x),Math.round(y)); const s=boss?1.45:1; const bob=Math.sin(walk*6)*1.3;
+    ctx.save(); ctx.translate(Math.round(x),Math.round(y)); if(entity?.facing==='left'||entity?.facing==='right'){ if(entity?.facing==='left') ctx.scale(-1,1); } const s=boss?1.45:1; const bob=Math.sin(walk*6)*1.3;
     ctx.fillStyle=boss?'#8a3d4d':'#5aaa52';
     ctx.beginPath(); ctx.moveTo(-10*s,-24*s+bob); ctx.lineTo(-24*s,-30*s+bob); ctx.lineTo(-11*s,-13*s+bob); ctx.fill();
     ctx.beginPath(); ctx.moveTo(10*s,-24*s+bob); ctx.lineTo(24*s,-30*s+bob); ctx.lineTo(11*s,-13*s+bob); ctx.fill();
@@ -899,7 +943,7 @@ class Game {
     this.monkeys=[]; this.selectedSlot=0; this.currentBuild='campfire'; this.craftOpen=false; this.helpOpen=false; this.assetOpen=false; this.assetPage=0; this.paused=false; this.gameOver=false; this.win=false;
     this.unlocked={craft:{monkey_munch:true,cooked_meal:true,pickaxe:true,sword:true}, build:{campfire:true,chest:true,workbench:true,bed:true,wall:true,torch:true,raft:true}};
     this.mimic={active:false,monkey:null,phase:'idle'};
-    this.time=.28; this.day=1; this.dayTimer=0; this.raidTimer=180; this.questIndex=0; this.island=1;
+    this.time=.36; this.day=1; this.dayTimer=0; this.raidTimer=180; this.questIndex=0; this.island=1;
     this.message('Welcome. Build a camp, tame monkeys, raid a vault, repair the galleon.');
     if(localStorage.getItem(SAVE_KEY)) this.message('Save found: press L to load, or N for a fresh island.');
   }
@@ -1096,7 +1140,7 @@ class Game {
   }
   consumeStamina(cost){ if(this.player.stamina<cost){ this.message('Too tired. Let stamina refill.'); return false; } this.player.stamina-=cost; this.player.attackCd=.24; return true; }
   findActionTarget(fromMouse=false){
-    const p=this.player; const tx=fromMouse?this.input.mouse.worldX:p.x+(p.dir==='side'?34:0), ty=fromMouse?this.input.mouse.worldY:p.y+(p.dir==='up'?-34:p.dir==='down'?34:0);
+    const p=this.player; const tx=fromMouse?this.input.mouse.worldX:p.x+(p.dir==='side'?(p.facing==='left'?-34:34):0), ty=fromMouse?this.input.mouse.worldY:p.y+(p.dir==='up'?-34:p.dir==='down'?34:0);
     const maxReach=fromMouse?86:58;
     let bestResource=null, bestEnemy=null, br=99999, be=99999;
     for(const r of this.world.resources){ const d=dist2(tx,ty,r.x,r.y); const pr=dist2(p.x,p.y,r.x,r.y); if(d<br && pr<maxReach*maxReach){ br=d; bestResource=r; } }
@@ -1288,13 +1332,21 @@ class Game {
     const raw=localStorage.getItem(SAVE_KEY); if(!raw){ this.message('No save found.'); return; }
     try{ const d=JSON.parse(raw); this.seed=d.seed; this.island=d.island||1; this.world=World.fromData(d.world); this.overworld=this.world.kind==='overworld'?this.world:this.overworld; this.player=d.player; this.monkeys=d.monkeys||[]; this.unlocked=d.unlocked||this.unlocked; this.day=d.day||1; this.time=d.time||.28; this.questIndex=d.questIndex||0; this.message('Loaded saved game.'); } catch(e){ this.message('Save failed to load. Starting fresh.'); }
   }
-  newGame(){ localStorage.removeItem(SAVE_KEY); const fresh=new Game(this.canvas); Object.assign(this,fresh); this.resize(); this.message('New island generated.'); }
+  newGame(){
+    localStorage.removeItem(SAVE_KEY);
+    const preserved={canvas:this.canvas,ctx:this.ctx,input:this.input,art:this.art};
+    const fresh=new Game(this.canvas);
+    Object.assign(this,fresh);
+    this.canvas=preserved.canvas; this.ctx=preserved.ctx; this.input=preserved.input; this.art=preserved.art;
+    this.resize();
+    this.message('New island generated.');
+  }
   render(){
     const ctx=this.ctx; ctx.clearRect(0,0,this.canvas.width,this.canvas.height); ctx.imageSmoothingEnabled=false;
     this.renderWorld(ctx); this.renderLighting(ctx); this.renderUI(ctx);
   }
   renderWorld(ctx){
-    const w=this.world, cam=this.camera; const startX=Math.floor(cam.x/TILE)-1, endX=Math.ceil((cam.x+this.canvas.width)/TILE)+1; const startY=Math.floor(cam.y/TILE)-1, endY=Math.ceil((cam.y+this.canvas.height)/TILE)+1;
+    const w=this.world, cam={x:Math.round(this.camera.x), y:Math.round(this.camera.y)}; const startX=Math.floor(cam.x/TILE)-1, endX=Math.ceil((cam.x+this.canvas.width)/TILE)+1; const startY=Math.floor(cam.y/TILE)-1, endY=Math.ceil((cam.y+this.canvas.height)/TILE)+1;
     for(let y=startY;y<=endY;y++) for(let x=startX;x<=endX;x++){ if(!w.inBounds(x,y)) continue; this.art.drawTile(ctx,w.tile(x,y),x*TILE-cam.x,y*TILE-cam.y,x,y,this.time*100); }
     // sort objects by ground Y
     const objects=[];
@@ -1311,38 +1363,64 @@ class Game {
     this.renderCursorTooltip(ctx);
   }
   renderLighting(ctx){
-    const night = this.nightAmount(); if(night<=.03) return;
-    ctx.save(); ctx.fillStyle=`rgba(8,12,28,${night*.72})`; ctx.fillRect(0,0,this.canvas.width,this.canvas.height);
+    const night = this.nightAmount(); if(night<=.08) return;
+    const camX=Math.round(this.camera.x), camY=Math.round(this.camera.y);
+    ctx.save(); ctx.fillStyle=`rgba(8,12,28,${night*.5})`; ctx.fillRect(0,0,this.canvas.width,this.canvas.height);
     ctx.globalCompositeOperation='destination-out';
-    const lights=[]; for(const b of this.world.buildings){ const rec=BUILD_RECIPES[b.type]; if(rec && rec.light) lights.push({x:b.x-this.camera.x,y:b.y-this.camera.y-20,r:rec.light}); }
-    lights.push({x:this.player.x-this.camera.x,y:this.player.y-this.camera.y-20,r:90});
-    for(const l of lights){ const g=ctx.createRadialGradient(l.x,l.y,10,l.x,l.y,l.r); g.addColorStop(0,'rgba(255,255,255,.95)'); g.addColorStop(1,'rgba(255,255,255,0)'); ctx.fillStyle=g; ctx.beginPath(); ctx.arc(l.x,l.y,l.r,0,TWO_PI); ctx.fill(); }
+    const lights=[]; for(const b of this.world.buildings){ const rec=BUILD_RECIPES[b.type]; if(rec && rec.light) lights.push({x:b.x-camX,y:b.y-camY-20,r:Math.round(rec.light*.7)}); }
+    lights.push({x:this.player.x-camX,y:this.player.y-camY-20,r:110});
+    for(const l of lights){ const g=ctx.createRadialGradient(l.x,l.y,8,l.x,l.y,l.r); g.addColorStop(0,'rgba(255,255,255,1)'); g.addColorStop(.55,'rgba(255,255,255,.45)'); g.addColorStop(1,'rgba(255,255,255,0)'); ctx.fillStyle=g; ctx.beginPath(); ctx.arc(l.x,l.y,l.r,0,TWO_PI); ctx.fill(); }
     ctx.restore();
-    ctx.save(); ctx.globalCompositeOperation='lighter'; for(const l of lights){ const g=ctx.createRadialGradient(l.x,l.y,5,l.x,l.y,l.r*.65); g.addColorStop(0,'rgba(255,166,55,.20)'); g.addColorStop(1,'rgba(255,166,55,0)'); ctx.fillStyle=g; ctx.beginPath(); ctx.arc(l.x,l.y,l.r*.65,0,TWO_PI); ctx.fill(); } ctx.restore();
+    ctx.save(); ctx.globalCompositeOperation='lighter'; for(const l of lights){ const g=ctx.createRadialGradient(l.x,l.y,4,l.x,l.y,l.r*.55); g.addColorStop(0,'rgba(255,166,55,.18)'); g.addColorStop(1,'rgba(255,166,55,0)'); ctx.fillStyle=g; ctx.beginPath(); ctx.arc(l.x,l.y,l.r*.55,0,TWO_PI); ctx.fill(); } ctx.restore();
   }
-  nightAmount(){ const t=this.time; const d=Math.min(Math.abs(t-.5)*2,1); return clamp((d-.38)/.42,0,1); }
+  nightAmount(){ const t=this.time; const d=Math.min(Math.abs(t-.5)*2,1); return clamp((d-.52)/.34,0,1); }
   renderUI(ctx){
     this.uiButtons=[];
     this.drawStats(ctx); this.drawHotbar(ctx); this.drawMinimap(ctx); this.drawMessages(ctx); this.drawQuest(ctx); this.drawMimicPanel(ctx);
     if(this.craftOpen) this.drawCraftMenu(ctx); if(this.helpOpen) this.drawHelp(ctx); if(this.assetOpen) this.drawAssetBrowser(ctx); if(this.win) this.drawWin(ctx); if(this.gameOver) this.drawGameOver(ctx);
   }
   panel(ctx,x,y,w,h,a=.84){
-    if(this.art.assetsReady && this.art.sprites.ui_panel_medium){ ctx.save(); ctx.globalAlpha=a; ctx.drawImage(this.art.sprites.ui_panel_medium,Math.round(x),Math.round(y),Math.round(w),Math.round(h)); ctx.restore(); return; }
-    ctx.fillStyle=`rgba(23,31,38,${a})`; ctx.fillRect(x,y,w,h); ctx.strokeStyle=COLORS.ink; ctx.lineWidth=3; ctx.strokeRect(x+.5,y+.5,w,h); ctx.strokeStyle='rgba(255,245,214,.28)'; ctx.lineWidth=1; ctx.strokeRect(x+4.5,y+4.5,w-8,h-8);
+    ctx.save();
+    ctx.fillStyle=`rgba(16,22,30,${a})`; ctx.fillRect(x,y,w,h);
+    ctx.fillStyle='rgba(255,255,255,.04)'; ctx.fillRect(x+2,y+2,w-4,10);
+    ctx.strokeStyle='rgba(10,8,7,.95)'; ctx.lineWidth=3; ctx.strokeRect(x+0.5,y+0.5,w,h);
+    ctx.strokeStyle='rgba(255,245,214,.24)'; ctx.lineWidth=1; ctx.strokeRect(x+4.5,y+4.5,w-8,h-8);
+    ctx.restore();
   }
   drawStats(ctx){
-    const x=38,y=this.canvas.height-78; this.drawStatCircle(ctx,x,y,30,this.player.health/this.player.maxHealth,COLORS.red,'heart'); this.drawStatCircle(ctx,x+76,y,25,this.player.hunger/this.player.maxHunger,COLORS.yellow,'hunger'); this.drawStatCircle(ctx,this.canvas.width-58,y,30,this.player.stamina/this.player.maxStamina,'#37e052','stamina');
-    ctx.font='bold 13px monospace'; ctx.textAlign='left'; ctx.fillStyle=COLORS.white; ctx.fillText(`Day ${this.day}  Island ${this.island}`,16,24); ctx.fillText(`${this.world.kind==='dungeon'?'VAULT':'OPEN WORLD'}  ${Math.floor(this.time*24).toString().padStart(2,'0')}:00`,16,43);
+    const infoX=16, infoY=14, infoW=220, infoH=42;
+    this.panel(ctx,infoX,infoY,infoW,infoH,.72);
+    ctx.font='bold 13px monospace'; ctx.textAlign='left'; ctx.fillStyle=COLORS.white;
+    ctx.fillText(`Day ${this.day}  Island ${this.island}`,infoX+12,infoY+17);
+    ctx.fillStyle='rgba(255,245,214,.86)';
+    ctx.fillText(`${this.world.kind==='dungeon'?'VAULT':'OPEN WORLD'}  ${Math.floor(this.time*24).toString().padStart(2,'0')}:00`,infoX+12,infoY+34);
+    const y=this.canvas.height-82;
+    this.drawStatCircle(ctx,46,y,28,this.player.health/this.player.maxHealth,COLORS.red,'heart');
+    this.drawStatCircle(ctx,120,y,24,this.player.hunger/this.player.maxHunger,COLORS.yellow,'hunger');
+    this.drawStatCircle(ctx,this.canvas.width-54,y,28,this.player.stamina/this.player.maxStamina,'#37e052','stamina');
   }
-  drawStatCircle(ctx,x,y,r,pct,color,icon){ ctx.save(); const ringKey=icon==='heart'?'ui_health_ring':(icon==='hunger'?'ui_hunger_ring':'ui_stamina_ring'); if(this.art.assetsReady && this.art.sprites[ringKey]) this.art.drawAsset(ctx,ringKey,x,y,{anchor:'center',w:r*2+14,h:r*2+14}); else { ctx.fillStyle='rgba(0,0,0,.45)'; ctx.beginPath(); ctx.arc(x,y,r+5,0,TWO_PI); ctx.fill(); ctx.strokeStyle='white'; ctx.lineWidth=4; ctx.globalAlpha=.25; ctx.beginPath(); ctx.arc(x,y,r,0,TWO_PI); ctx.stroke(); ctx.globalAlpha=1; } ctx.strokeStyle=color; ctx.lineWidth=6; ctx.beginPath(); ctx.arc(x,y,r,-Math.PI/2,-Math.PI/2+TWO_PI*clamp(pct,0,1)); ctx.stroke(); this.art.drawIconShape(ctx,icon,x,y,.72); ctx.restore(); }
+  drawStatCircle(ctx,x,y,r,pct,color,icon){
+    ctx.save();
+    ctx.fillStyle='rgba(0,0,0,.48)'; ctx.beginPath(); ctx.arc(x,y,r+6,0,TWO_PI); ctx.fill();
+    ctx.strokeStyle='rgba(255,255,255,.14)'; ctx.lineWidth=5; ctx.beginPath(); ctx.arc(x,y,r,0,TWO_PI); ctx.stroke();
+    ctx.strokeStyle=color; ctx.lineWidth=6; ctx.lineCap='round'; ctx.beginPath(); ctx.arc(x,y,r,-Math.PI/2,-Math.PI/2+TWO_PI*clamp(pct,0,1)); ctx.stroke();
+    ctx.fillStyle='rgba(255,255,255,.04)'; ctx.beginPath(); ctx.arc(x,y,r-8,0,TWO_PI); ctx.fill();
+    this.art.drawIconShape(ctx,icon,x,y,.72);
+    ctx.restore();
+  }
   drawHotbar(ctx){
-    const slot=50, gap=6, count=HOTBAR.length; const w=count*slot+(count-1)*gap; const x0=(this.canvas.width-w)/2, y=this.canvas.height-64;
+    const slot=52, gap=8, count=HOTBAR.length; const w=count*slot+(count-1)*gap; const x0=(this.canvas.width-w)/2, y=this.canvas.height-72;
+    this.panel(ctx,x0-14,y-22,w+28,74,.7);
     for(let i=0;i<count;i++){
-      const x=x0+i*(slot+gap), id=HOTBAR[i]; const slotKey=i===this.selectedSlot?'ui_slot_selected':'ui_slot'; if(this.art.assetsReady && this.art.sprites[slotKey]) this.art.drawAsset(ctx,slotKey,x+slot/2,y+slot/2,{anchor:'center',w:slot,h:slot}); else { ctx.fillStyle=i===this.selectedSlot?'rgba(255,216,90,.36)':'rgba(14,22,30,.72)'; ctx.fillRect(x,y,slot,slot); ctx.strokeStyle=i===this.selectedSlot?COLORS.yellow:'rgba(255,255,255,.45)'; ctx.lineWidth=i===this.selectedSlot?4:2; ctx.strokeRect(x+.5,y+.5,slot,slot); } this.art.drawIconShape(ctx,id,x+slot/2,y+slot/2,.86);
-      let qty=this.player.inv[id]||0; if(BUILD_RECIPES[id]) qty=this.unlocked.build[id]?'B':''; if(ITEM_INFO[id]?.tool && qty>0) qty=''; if(qty){ ctx.font='bold 12px monospace'; ctx.textAlign='right'; ctx.strokeStyle='black'; ctx.lineWidth=3; ctx.strokeText(String(qty),x+slot-5,y+slot-6); ctx.fillStyle='white'; ctx.fillText(String(qty),x+slot-5,y+slot-6); }
-      ctx.font='bold 10px monospace'; ctx.textAlign='left'; ctx.fillStyle='rgba(255,255,255,.75)'; ctx.fillText(i===9?'0':String(i+1),x+4,y+12);
+      const x=x0+i*(slot+gap), id=HOTBAR[i];
+      ctx.fillStyle=i===this.selectedSlot?'rgba(255,216,90,.22)':'rgba(12,18,26,.78)'; ctx.fillRect(x,y,slot,slot);
+      ctx.strokeStyle=i===this.selectedSlot?COLORS.yellow:'rgba(255,255,255,.28)'; ctx.lineWidth=i===this.selectedSlot?3:2; ctx.strokeRect(x+.5,y+.5,slot,slot);
+      this.art.drawIconShape(ctx,id,x+slot/2,y+slot/2,.88);
+      let qty=this.player.inv[id]||0; if(BUILD_RECIPES[id]) qty=this.unlocked.build[id]?'B':''; if(ITEM_INFO[id]?.tool && qty>0) qty='';
+      if(qty){ ctx.font='bold 12px monospace'; ctx.textAlign='right'; ctx.strokeStyle='black'; ctx.lineWidth=3; ctx.strokeText(String(qty),x+slot-5,y+slot-6); ctx.fillStyle='white'; ctx.fillText(String(qty),x+slot-5,y+slot-6); }
+      ctx.font='bold 10px monospace'; ctx.textAlign='left'; ctx.fillStyle='rgba(255,255,255,.72)'; ctx.fillText(i===9?'0':String(i+1),x+5,y+12);
     }
-    ctx.font='bold 16px monospace'; ctx.textAlign='center'; ctx.fillStyle=COLORS.white; const sel=this.currentHotbarItem(); ctx.fillText(itemName(sel),this.canvas.width/2,y-10);
+    ctx.font='bold 16px monospace'; ctx.textAlign='center'; ctx.fillStyle=COLORS.white; const sel=this.currentHotbarItem(); ctx.fillText(itemName(sel),this.canvas.width/2,y-6);
   }
   drawMinimap(ctx){
     const r=78, x=this.canvas.width-102, y=96; ctx.save(); ctx.beginPath(); ctx.arc(x,y,r,0,TWO_PI); ctx.clip(); ctx.fillStyle='rgba(0,0,0,.5)'; ctx.fillRect(x-r,y-r,r*2,r*2);
@@ -1357,9 +1435,29 @@ class Game {
     for(const m of this.messages){ ctx.globalAlpha=clamp(m.t,0,.95); ctx.fillStyle='rgba(0,0,0,.45)'; const w=ctx.measureText(m.text).width+20; ctx.fillRect(16,y-17,w,22); ctx.fillStyle=m.color; ctx.fillText(m.text,26,y); y-=25; }
     ctx.globalAlpha=1;
   }
-  drawQuest(ctx){ const text=QUESTS[this.questIndex]||QUESTS[0]; const x=this.canvas.width/2-250,y=16,w=500,h=42; this.panel(ctx,x,y,w,h,.56); ctx.font='bold 15px monospace'; ctx.textAlign='center'; ctx.fillStyle=COLORS.yellow; ctx.fillText('CURRENT QUEST',x+w/2,y+17); ctx.fillStyle=COLORS.white; ctx.fillText(text,x+w/2,y+34); }
+  drawQuest(ctx){
+    const text=QUESTS[this.questIndex]||QUESTS[0];
+    ctx.font='13px monospace';
+    const maxW=Math.min(420, this.canvas.width-380);
+    const lines=wrapTextLines(ctx, text, maxW-28);
+    const w=Math.max(300, Math.min(460, maxW));
+    const h=30 + lines.length*16;
+    const x=(this.canvas.width-w)/2, y=12;
+    this.panel(ctx,x,y,w,h,.62);
+    ctx.font='bold 14px monospace'; ctx.textAlign='center'; ctx.fillStyle=COLORS.yellow; ctx.fillText('CURRENT QUEST',x+w/2,y+16);
+    ctx.font='13px monospace'; ctx.fillStyle=COLORS.white;
+    lines.forEach((line,i)=>ctx.fillText(line,x+w/2,y+34+i*15));
+  }
   drawMimicPanel(ctx){
-    const x=16,y=58,w=260,h=this.mimic.active?100:72; this.panel(ctx,x,y,w,h,.62); ctx.font='bold 14px monospace'; ctx.textAlign='left'; ctx.fillStyle=this.mimic.active?COLORS.yellow:COLORS.white; ctx.fillText('MIMIC MODE [M]',x+12,y+22); ctx.fillStyle=COLORS.white; const tamed=this.monkeys.filter(m=>m.tamed); ctx.fillText(`${tamed.length} monkey crew`,x+12,y+43); if(this.mimic.active){ ctx.fillStyle=COLORS.yellow; ctx.fillText(this.mimic.monkey?`${this.mimic.monkey.name} watching...`:'Press E near a monkey',x+12,y+66); ctx.fillStyle='rgba(255,255,255,.75)'; ctx.fillText('Then perform one action.',x+12,y+86); } else if(tamed.length){ ctx.fillStyle='rgba(255,255,255,.75)'; ctx.fillText('Press M to teach tasks.',x+12,y+62); }
+    const tamed=this.monkeys.filter(m=>m.tamed);
+    const lines=[`${tamed.length} monkey crew`];
+    if(this.mimic.active){ lines.push(this.mimic.monkey?`${this.mimic.monkey.name} watching...`:'Press E near a monkey'); lines.push('Then perform one action.'); }
+    else if(tamed.length) lines.push('Press M to teach tasks.');
+    const x=16,y=64,w=286,h=40+lines.length*18;
+    this.panel(ctx,x,y,w,h,.66);
+    ctx.font='bold 14px monospace'; ctx.textAlign='left'; ctx.fillStyle=this.mimic.active?COLORS.yellow:COLORS.white; ctx.fillText('MIMIC MODE [M]',x+12,y+18);
+    ctx.font='13px monospace';
+    lines.forEach((line,i)=>{ ctx.fillStyle=i===1&&this.mimic.active?COLORS.yellow:(i===0?COLORS.white:'rgba(255,255,255,.78)'); ctx.fillText(line,x+12,y+38+i*17); });
   }
   drawCraftMenu(ctx){
     const w=Math.min(900,this.canvas.width-60), h=Math.min(620,this.canvas.height-80), x=(this.canvas.width-w)/2, y=(this.canvas.height-h)/2; this.panel(ctx,x,y,w,h,.94); ctx.font='bold 30px monospace'; ctx.textAlign='center'; ctx.fillStyle=COLORS.yellow; ctx.fillText('CRAFTING & BLUEPRINTS',x+w/2,y+42); ctx.font='14px monospace'; ctx.fillStyle=COLORS.white; ctx.fillText('Click a recipe. Stations queue jobs; hammer them or teach a monkey Craft.',x+w/2,y+66);
