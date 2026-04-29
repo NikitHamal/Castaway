@@ -82,15 +82,15 @@ export class World {
       const t=this.tile(x,y); if(t==='water'||t==='shallow'||t==='lava'||t==='path') continue;
       const nearSpawn = Math.hypot(x-spawnTile.x,y-spawnTile.y) < 6;
       const r=hash2(x,y,this.seed+44);
-      if(!nearSpawn && (t==='grass'||t==='grass2'||t==='sand') && r>.91) this.addResource('tree',x*TILE+16+randRange(rng,-5,5),y*TILE+25+randRange(rng,-5,5),{variant:r>.96?1:0});
-      else if(!nearSpawn && (t==='grass'||t==='grass2'||t==='sand'||t==='ash') && r>.84 && r<=.91) this.addResource(t==='ash'?'iron':'rock',x*TILE+16,y*TILE+22);
-      else if((t==='grass'||t==='grass2'||t==='swamp') && r>.78 && r<=.84) this.addResource('bush',x*TILE+16,y*TILE+23);
+      if(!nearSpawn && (t==='grass'||t==='grass2'||t==='sand') && r>.91) this.addResource('tree',x*TILE+TILE/2+randRange(rng,-6,6),y*TILE+TILE*.72+randRange(rng,-6,6),{variant:r>.96?1:0});
+      else if(!nearSpawn && (t==='grass'||t==='grass2'||t==='sand'||t==='ash') && r>.84 && r<=.91) this.addResource(t==='ash'?'iron':'rock',x*TILE+TILE/2,y*TILE+TILE*.66);
+      else if((t==='grass'||t==='grass2'||t==='swamp') && r>.78 && r<=.84) this.addResource('bush',x*TILE+TILE/2,y*TILE+TILE*.68);
     }
     // starter supplies
     for(let i=0;i<6;i++) this.addResource(i%3===0?'rock':(i%3===1?'tree':'bush'), this.spawn.x + randRange(rng,-180,180), this.spawn.y + randRange(rng,-160,160));
   }
   placePOIs(rng, spawnTile){
-    const place = (type, tx, ty, extra={}) => this.addBuilding(type,tx*TILE+16,ty*TILE+24,extra);
+    const place = (type, tx, ty, extra={}) => this.addBuilding(type,tx*TILE+TILE/2,ty*TILE+TILE*.72,extra);
     // caged monkeys near start
     place('cage', spawnTile.x+5, spawnTile.y+1, {cagedMonkey:true});
     place('chest', spawnTile.x-3, spawnTile.y+1, {storage:{wood:2, berry:2}});
@@ -128,11 +128,11 @@ export class World {
     return best;
   }
   isOccupiedTile(tx,ty){
-    const x=tx*TILE+16,y=ty*TILE+16;
+    const x=tx*TILE+TILE/2,y=ty*TILE+TILE/2;
     return this.buildings.some(b=>distance(x,y,b.x,b.y)<80)||this.resources.some(r=>distance(x,y,r.x,r.y)<45);
   }
   generateDungeon(){
-    this.spawn = {x: 4*TILE+16, y: Math.floor(this.h/2)*TILE+16};
+    this.spawn = {x: 4*TILE+TILE/2, y: Math.floor(this.h/2)*TILE+TILE/2};
     for(let y=0;y<this.h;y++) for(let x=0;x<this.w;x++){
       let t='floor';
       if(x===0||y===0||x===this.w-1||y===this.h-1) t='walltile';
@@ -140,16 +140,16 @@ export class World {
       if((y===7||y===20) && x>6 && x<this.w-7 && x!==18) t='walltile';
       this.setTile(x,y,t);
     }
-    this.addBuilding('portal', 2*TILE+16, Math.floor(this.h/2)*TILE+24, {exit:true, solid:false});
-    for(let i=0;i<6;i++) this.addEnemy('goblin', (8+i*4)*TILE+16, (5+(i%4)*5)*TILE+16, {dungeon:true});
-    this.addEnemy('boss', 30*TILE+16, Math.floor(this.h/2)*TILE+16, {boss:true, hp:190, dungeon:true});
-    this.addBuilding('chest', 32*TILE+16, Math.floor(this.h/2+3)*TILE+24, {storage:{core:1, iron:3, banana:3}, locked:true, dungeonLoot:true});
-    this.addBuilding('bookshelf', 7*TILE+16, 4*TILE+24, {solid:false,deco:true});
-    this.addBuilding('rug', 18*TILE+16, 14*TILE+24, {solid:false,deco:true});
-    this.addBuilding('cauldron', 13*TILE+16, 10*TILE+24, {solid:false,deco:true});
-    this.addBuilding('anvil', 24*TILE+16, 10*TILE+24, {solid:false,deco:true});
-    this.addBuilding('spike_trap', 18*TILE+16, 7*TILE+24, {solid:false,deco:true});
-    this.addBuilding('brazier', 22*TILE+16, 20*TILE+24, {solid:false,deco:true});
+    this.addBuilding('portal', 2*TILE+TILE/2, Math.floor(this.h/2)*TILE+TILE*.72, {exit:true, solid:false});
+    for(let i=0;i<6;i++) this.addEnemy('goblin', (8+i*4)*TILE+TILE/2, (5+(i%4)*5)*TILE+TILE/2, {dungeon:true});
+    this.addEnemy('boss', 30*TILE+TILE/2, Math.floor(this.h/2)*TILE+TILE/2, {boss:true, hp:190, dungeon:true});
+    this.addBuilding('chest', 32*TILE+TILE/2, Math.floor(this.h/2+3)*TILE+TILE*.72, {storage:{core:1, iron:3, banana:3}, locked:true, dungeonLoot:true});
+    this.addBuilding('bookshelf', 7*TILE+TILE/2, 4*TILE+TILE*.72, {solid:false,deco:true});
+    this.addBuilding('rug', 18*TILE+TILE/2, 14*TILE+TILE*.72, {solid:false,deco:true});
+    this.addBuilding('cauldron', 13*TILE+TILE/2, 10*TILE+TILE*.72, {solid:false,deco:true});
+    this.addBuilding('anvil', 24*TILE+TILE/2, 10*TILE+TILE*.72, {solid:false,deco:true});
+    this.addBuilding('spike_trap', 18*TILE+TILE/2, 7*TILE+TILE*.72, {solid:false,deco:true});
+    this.addBuilding('brazier', 22*TILE+TILE/2, 20*TILE+TILE*.72, {solid:false,deco:true});
   }
   addResource(type,x,y,extra={}){ const hp = type==='tree'?4:(type==='iron'?6:(type==='rock'?4:2)); const r={id:nowId(),type,x,y,hp,maxHp:hp,variant:extra.variant||0}; this.resources.push(r); return r; }
   addItem(type,x,y,qty=1){
@@ -178,7 +178,7 @@ export class World {
   isBlocked(px,py,r=10,opts={}){
     const tx=Math.floor(px/TILE), ty=Math.floor(py/TILE);
     for(let yy=-1;yy<=1;yy++) for(let xx=-1;xx<=1;xx++) if(!this.isWalkableTile(tx+xx,ty+yy,opts)){
-      const cx=(tx+xx)*TILE+16, cy=(ty+yy)*TILE+16; if(Math.abs(px-cx)<16+r && Math.abs(py-cy)<16+r) return true;
+      const cx=(tx+xx)*TILE+TILE/2, cy=(ty+yy)*TILE+TILE/2; if(Math.abs(px-cx)<TILE*.44+r && Math.abs(py-cy)<TILE*.44+r) return true;
     }
     for(const b of this.buildings){ if(b.solid && distance(px,py,b.x,b.y)<(typeRadius(b.type)+r)) return true; }
     for(const b of this.blueprints){ if(distance(px,py,b.x,b.y)<(24+r)) return true; }

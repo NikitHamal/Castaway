@@ -2,7 +2,8 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+  <meta name="theme-color" content="#10151f" />
   <title>Castaway Mimics</title>
   <link rel="stylesheet" href="style.css" />
 </head>
@@ -11,9 +12,13 @@
   <div id="boot" class="boot">
     <div class="boot-card">
       <div class="boot-title">CASTAWAY MIMICS</div>
-      <div class="boot-subtitle">top-down survival sandbox prototype</div>
-      <div class="boot-note">Click Start, then use WASD to move. Mouse-click aims tools; Space uses current facing. Press F1 for controls.</div>
-      <button id="startBtn">Start</button>
+      <div class="boot-subtitle">top-down survival sandbox with monkey mimic automation</div>
+      <div class="boot-note">Desktop: WASD/Arrows, Space/click, E, C, F, M. Mobile: drag left joystick, tap hotbar slots, use the right-side action buttons.</div>
+      <div class="boot-actions">
+        <button id="startBtn">Start / Resume</button>
+        <button id="resumeBtn" type="button">Resume Save</button>
+        <button id="newBtn" type="button">Fresh Island</button>
+      </div>
     </div>
   </div>
   <script type="module" src="src/main.js"></script>
