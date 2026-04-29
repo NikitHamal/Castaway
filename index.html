@@ -2,20 +2,42 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="theme-color" content="#0b1220" />
   <title>Castaway Mimics</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <canvas id="game" width="1280" height="720" aria-label="Castaway Mimics game canvas"></canvas>
+  <canvas id="game" aria-label="Castaway Mimics game canvas"></canvas>
   <div id="boot" class="boot">
     <div class="boot-card">
       <div class="boot-title">CASTAWAY MIMICS</div>
-      <div class="boot-subtitle">top-down survival sandbox prototype</div>
-      <div class="boot-note">Click Start, then use WASD to move. Mouse-click aims tools; Space uses current facing. Press F1 for controls.</div>
+      <div class="boot-subtitle">top-down survival sandbox</div>
+      <div class="boot-note">
+        Desktop: WASD to move. Mouse aims tools; Space uses current facing. F1 for controls.<br>
+        Mobile: use on-screen joystick and buttons.
+      </div>
       <button id="startBtn">Start</button>
     </div>
   </div>
+
+  <!-- Mobile Touch Controls -->
+  <div id="mobileControls" class="mobile-controls hidden">
+    <div id="joystickZone" class="joystick-zone">
+      <div id="joystickBase" class="joystick-base"></div>
+      <div id="joystickKnob" class="joystick-knob"></div>
+    </div>
+    <div class="action-buttons">
+      <button id="btnAction" class="mbtn mbtn-action">A</button>
+      <button id="btnInteract" class="mbtn mbtn-interact">E</button>
+      <button id="btnBuild" class="mbtn mbtn-build">B</button>
+      <button id="btnCraft" class="mbtn mbtn-craft">C</button>
+      <button id="btnMimic" class="mbtn mbtn-mimic">M</button>
+    </div>
+  </div>
+
   <script type="module" src="src/main.js"></script>
 </body>
 </html>

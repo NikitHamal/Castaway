@@ -11,6 +11,7 @@ export const SAVE_KEY = 'castaway_mimics_save_v2';
 export const SAVE_VERSION = 2;
 export const ATTACK_COOLDOWN = 0.28;
 export const TWO_PI = Math.PI * 2;
+export const RENDER_SCALE_BASE = 1.35;
 
 export const GENERATED_ASSETS = {
   "player_down": "assets/generated/curated/characters/player_down.png",
@@ -305,6 +306,11 @@ export function formatCost(cost){ return Object.entries(cost).map(([k,v]) => `${
 export function itemName(id){ return (ITEM_INFO[id] && ITEM_INFO[id].name) || (BUILD_RECIPES[id] && BUILD_RECIPES[id].name) || id.replace(/_/g,' '); }
 export function hash2(x, y, seed=0){
   let n = (x * 374761393 + y * 668265263 + seed * 1442695041) | 0;
+  n = (n ^ (n >>> 13)) * 1274126177;
+  return ((n ^ (n >>> 16)) >>> 0) / 4294967295;
+}
+export function hash1(x, seed=0){
+  let n = (x * 374761393 + seed * 1442695041) | 0;
   n = (n ^ (n >>> 13)) * 1274126177;
   return ((n ^ (n >>> 16)) >>> 0) / 4294967295;
 }

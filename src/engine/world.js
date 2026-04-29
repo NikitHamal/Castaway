@@ -23,6 +23,8 @@ export class World {
     this.resources = []; this.items = []; this.buildings = []; this.blueprints = []; this.enemies = [];
     this.defeatedVault = false;
     this.spawn = {x: Math.floor(this.w/2)*TILE + TILE/2, y: Math.floor(this.h/2)*TILE + TILE/2};
+    this._spatialGrid = null;
+    this._spatialTick = 0;
     if (kind === 'dungeon') this.generateDungeon(); else this.generateOverworld();
   }
   idx(tx,ty){ return ty*this.w + tx; }
@@ -31,26 +33,38 @@ export class World {
   setTile(tx,ty,t){ if(this.inBounds(tx,ty)) this.tiles[this.idx(tx,ty)] = t; }
   generateOverworld(){
     const rng = mulberry32(this.seed);
-    const cx = this.w/2 + randRange(rng,-5,5), cy = this.h/2 + randRange(rng,-5,5);
+    const cx = this.w/2 + randRange(rng,-6,6), cy = this.h/2 + randRange(rng,-6,6);
     const swamp = {x: Math.floor(randRange(rng,18,this.w-18)), y: Math.floor(randRange(rng,18,this.h-18)), r: randRange(rng,9,14)};
     const volcano = {x: Math.floor(randRange(rng,18,this.w-18)), y: Math.floor(randRange(rng,18,this.h-18)), r: randRange(rng,7,12)};
+    const forest = {x: Math.floor(randRange(rng,14,this.w-14)), y: Math.floor(randRange(rng,14,this.h-14)), r: randRange(rng,10,16)};
     for (let y=0;y<this.h;y++) for (let x=0;x<this.w;x++){
       const nx=(x-cx)/(this.w*.47), ny=(y-cy)/(this.h*.43);
       const d=Math.sqrt(nx*nx+ny*ny);
-      const n=(hash2(Math.floor(x/3),Math.floor(y/3),this.seed)-.5)*.32 + (hash2(x,y,this.seed+9)-.5)*.10;
-      let score = 1 - d + n;
+      const n1=(hash2(Math.floor(x/3),Math.floor(y/3),this.seed)-.5)*.32;
+      const n2=(hash2(Math.floor(x/2),Math.floor(y/2),this.seed+7)-.5)*.14;
+      const n3=(hash2(x,y,this.seed+9)-.5)*.08;
+      let score = 1 - d + n1 + n2 + n3;
       let t='grass';
       if (score < .02) t='water'; else if (score < .09) t='shallow'; else if (score < .20) t='sand'; else t = hash2(x,y,this.seed+3)>.87?'grass2':'grass';
-      const sd = Math.hypot(x-swamp.x,y-swamp.y); if (score>.22 && sd < swamp.r) t='swamp';
-      const vd = Math.hypot(x-volcano.x,y-volcano.y); if (score>.22 && vd < volcano.r) t = vd < volcano.r*.33 ? 'lava' : 'ash';
+      const sd = Math.hypot(x-swamp.x,y-swamp.y); if (score>.18 && sd < swamp.r) t='swamp';
+      const vd = Math.hypot(x-volcano.x,y-volcano.y); if (score>.18 && vd < volcano.r) t = vd < volcano.r*.33 ? 'lava' : 'ash';
+      const fd = Math.hypot(x-forest.x,y-forest.y); if (score>.30 && fd < forest.r && t!=='swamp' && t!=='ash' && t!=='lava') t = hash2(x,y,this.seed+12)>.6?'grass2':'grass';
       this.setTile(x,y,t);
+    }
+    // Smooth shorelines: replace isolated water/shallow tiles near land
+    for (let y=1;y<this.h-1;y++) for (let x=1;x<this.w-1;x++){
+      const t=this.tile(x,y);
+      if(t==='water'||t==='shallow'){
+        let land=0; for(let yy=-1;yy<=1;yy++) for(let xx=-1;xx<=1;xx++) if(this.tile(x+xx,y+yy)!=='water'&&this.tile(x+xx,y+yy)!=='shallow') land++;
+        if(land>=7) this.setTile(x,y,'sand');
+      }
     }
     // Safe starter beach/green patch.
     const spawnTile = this.findSpawnTile();
     this.spawn = {x: spawnTile.x*TILE+TILE/2, y: spawnTile.y*TILE+TILE/2};
-    for (let yy=-5; yy<=5; yy++) for (let xx=-5; xx<=5; xx++){
+    for (let yy=-6; yy<=6; yy++) for (let xx=-6; xx<=6; xx++){
       const tx=spawnTile.x+xx, ty=spawnTile.y+yy; if(!this.inBounds(tx,ty)) continue;
-      const d=Math.hypot(xx,yy); if(d<2.2) this.setTile(tx,ty,'sand'); else if(d<5 && this.tile(tx,ty)!=='water') this.setTile(tx,ty, d<3.8?'grass':'sand');
+      const d=Math.hypot(xx,yy); if(d<2.8) this.setTile(tx,ty,'sand'); else if(d<6 && this.tile(tx,ty)!=='water') this.setTile(tx,ty, d<4.2?'grass':'sand');
     }
     this.addPaths(spawnTile, rng);
     this.populateResources(rng, spawnTile);
@@ -151,20 +165,20 @@ export class World {
     this.addBuilding('spike_trap', 18*TILE+16, 7*TILE+24, {solid:false,deco:true});
     this.addBuilding('brazier', 22*TILE+16, 20*TILE+24, {solid:false,deco:true});
   }
-  addResource(type,x,y,extra={}){ const hp = type==='tree'?4:(type==='iron'?6:(type==='rock'?4:2)); const r={id:nowId(),type,x,y,hp,maxHp:hp,variant:extra.variant||0}; this.resources.push(r); return r; }
+  addResource(type,x,y,extra={}){ const hp = type==='tree'?4:(type==='iron'?6:(type==='rock'?4:2)); const r={id:nowId(),type,x,y,hp,maxHp:hp,variant:extra.variant||0}; this.resources.push(r); this._spatialGrid=null; return r; }
   addItem(type,x,y,qty=1){
     if(qty<=0) return null;
     for(const it of this.items){ if(it.type===type && distance(it.x,it.y,x,y)<24){ it.qty += qty; return it; } }
-    const it={id:nowId(),type,x,y,qty,vx:(Math.random()-.5)*22,vy:(Math.random()-.5)*22,t:0,seed:Math.random()*10}; this.items.push(it); return it;
+    const it={id:nowId(),type,x,y,qty,vx:(Math.random()-.5)*22,vy:(Math.random()-.5)*22,t:0,seed:Math.random()*10}; this.items.push(it); this._spatialGrid=null; return it;
   }
   addBuilding(type,x,y,extra={}){
     const recipe=BUILD_RECIPES[type] || {}; const b={id:nowId(),type,x,y,solid: extra.solid ?? recipe.solid ?? false, hp: extra.hp ?? recipe.hp ?? 999, storage: extra.storage ? deepClone(extra.storage) : (recipe.storage?{}:undefined), queue: [], ...extra};
-    this.buildings.push(b); return b;
+    this.buildings.push(b); this._spatialGrid=null; return b;
   }
   addBlueprint(type,x,y){
     const recipe=BUILD_RECIPES[type]; if(!recipe) return null;
     const bp={id:nowId(),type,x,y,cost:deepClone(recipe.cost), added:{}, progress:0, needProgress:recipe.progress, ready:false};
-    this.blueprints.push(bp); return bp;
+    this.blueprints.push(bp); this._spatialGrid=null; return bp;
   }
   addEnemy(type,x,y,extra={}){ const e={id:nowId(),type,x,y,hp:extra.hp || (type==='boss'?190:42), maxHp:extra.hp || (type==='boss'?190:42), vx:0,vy:0,walk:0,attackCd:0,hitFlash:0,...extra}; this.enemies.push(e); return e; }
   isWalkableTile(tx,ty,opts={}){
@@ -184,14 +198,40 @@ export class World {
     for(const b of this.blueprints){ if(distance(px,py,b.x,b.y)<(24+r)) return true; }
     return false;
   }
-  nearestResource(x,y,pred,maxD=99999){ let best=null, bd=maxD*maxD; for(const r of this.resources){ if(pred && !pred(r)) continue; const d=dist2(x,y,r.x,r.y); if(d<bd){bd=d; best=r;} } return best; }
-  nearestItem(x,y,pred,maxD=99999){ let best=null, bd=maxD*maxD; for(const it of this.items){ if(pred && !pred(it)) continue; const d=dist2(x,y,it.x,it.y); if(d<bd){bd=d; best=it;} } return best; }
-  nearestBuilding(x,y,pred,maxD=99999){ let best=null, bd=maxD*maxD; for(const b of this.buildings){ if(pred && !pred(b)) continue; const d=dist2(x,y,b.x,b.y); if(d<bd){bd=d; best=b;} } return best; }
-  nearestBlueprint(x,y,pred,maxD=99999){ let best=null, bd=maxD*maxD; for(const b of this.blueprints){ if(pred && !pred(b)) continue; const d=dist2(x,y,b.x,b.y); if(d<bd){bd=d; best=b;} } return best; }
-  removeResource(id){ const i=this.resources.findIndex(r=>r.id===id); if(i>=0) this.resources.splice(i,1); }
-  removeItem(id){ const i=this.items.findIndex(r=>r.id===id); if(i>=0) this.items.splice(i,1); }
+  nearestResource(x,y,pred,maxD=99999){ let best=null, bd=maxD*maxD; const list=this._spatialNear(x,y,maxD); for(const r of list){ if(!this.resources.includes(r)) continue; if(pred && !pred(r)) continue; const d=dist2(x,y,r.x,r.y); if(d<bd){bd=d; best=r;} } if(!best){ for(const r of this.resources){ if(pred && !pred(r)) continue; const d=dist2(x,y,r.x,r.y); if(d<bd){bd=d; best=r;} } } return best; }
+  nearestItem(x,y,pred,maxD=99999){ let best=null, bd=maxD*maxD; const list=this._spatialNear(x,y,maxD); for(const it of list){ if(!this.items.includes(it)) continue; if(pred && !pred(it)) continue; const d=dist2(x,y,it.x,it.y); if(d<bd){bd=d; best=it;} } if(!best){ for(const it of this.items){ if(pred && !pred(it)) continue; const d=dist2(x,y,it.x,it.y); if(d<bd){bd=d; best=it;} } } return best; }
+  nearestBuilding(x,y,pred,maxD=99999){ let best=null, bd=maxD*maxD; const list=this._spatialNear(x,y,maxD); for(const b of list){ if(!this.buildings.includes(b)) continue; if(pred && !pred(b)) continue; const d=dist2(x,y,b.x,b.y); if(d<bd){bd=d; best=b;} } if(!best){ for(const b of this.buildings){ if(pred && !pred(b)) continue; const d=dist2(x,y,b.x,b.y); if(d<bd){bd=d; best=b;} } } return best; }
+  nearestBlueprint(x,y,pred,maxD=99999){ let best=null, bd=maxD*maxD; const list=this._spatialNear(x,y,maxD); for(const b of list){ if(!this.blueprints.includes(b)) continue; if(pred && !pred(b)) continue; const d=dist2(x,y,b.x,b.y); if(d<bd){bd=d; best=b;} } if(!best){ for(const b of this.blueprints){ if(pred && !pred(b)) continue; const d=dist2(x,y,b.x,b.y); if(d<bd){bd=d; best=b;} } } return best; }
+  _rebuildSpatial(){
+    const cs = 128;
+    this._spatialGrid = new Map();
+    const add = (list) => {
+      for(const e of list){
+        const gx=Math.floor(e.x/cs), gy=Math.floor(e.y/cs);
+        const key=`${gx},${gy}`;
+        if(!this._spatialGrid.has(key)) this._spatialGrid.set(key,[]);
+        this._spatialGrid.get(key).push(e);
+      }
+    };
+    add(this.resources); add(this.items); add(this.buildings); add(this.blueprints);
+    this._spatialTick = 0;
+  }
+  _spatialNear(x,y,maxD,listName=null){
+    if(!this._spatialGrid) this._rebuildSpatial();
+    const cs = 128;
+    const r = Math.ceil(maxD/cs);
+    const gx=Math.floor(x/cs), gy=Math.floor(y/cs);
+    const out=[];
+    for(let yy=-r;yy<=r;yy++) for(let xx=-r;xx<=r;xx++){
+      const cell=this._spatialGrid.get(`${gx+xx},${gy+yy}`);
+      if(cell) for(const e of cell) out.push(e);
+    }
+    return out;
+  }
+  removeResource(id){ const i=this.resources.findIndex(r=>r.id===id); if(i>=0){ this.resources.splice(i,1); this._spatialGrid=null; } }
+  removeItem(id){ const i=this.items.findIndex(r=>r.id===id); if(i>=0){ this.items.splice(i,1); this._spatialGrid=null; } }
   removeEnemy(id){ const i=this.enemies.findIndex(r=>r.id===id); if(i>=0) this.enemies.splice(i,1); }
-  removeBlueprint(id){ const i=this.blueprints.findIndex(r=>r.id===id); if(i>=0) this.blueprints.splice(i,1); }
+  removeBlueprint(id){ const i=this.blueprints.findIndex(r=>r.id===id); if(i>=0){ this.blueprints.splice(i,1); this._spatialGrid=null; } }
   serialize(){ return {seed:this.seed,kind:this.kind,island:this.island,resources:this.resources,items:this.items,buildings:this.buildings,blueprints:this.blueprints,defeatedVault:this.defeatedVault}; }
   findPath(sx,sy,gx,gy,opts={}){
     const radius=opts.radius||9;

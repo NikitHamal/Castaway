@@ -91,7 +91,7 @@ export class Art {
     ctx.restore();
     return true;
   }
-  drawTileAsset(ctx,id,x,y){ const img=this.sprites[id]; if(!img) return false; const dx=Math.floor(x), dy=Math.floor(y); ctx.drawImage(img,dx,dy,TILE+1,TILE+1); return true; }
+  drawTileAsset(ctx,id,x,y){ const img=this.sprites[id]; if(!img) return false; const dx=Math.round(x), dy=Math.round(y); ctx.drawImage(img,dx,dy,TILE,TILE); return true; }
   px(ctx,x,y,w,h,c){ ctx.fillStyle=c; ctx.fillRect(Math.round(x),Math.round(y),Math.round(w),Math.round(h)); }
   makeTiles(){
     const types = ['grass','grass2','sand','water','shallow','stone','path','swamp','ash','lava','floor','walltile'];
@@ -168,7 +168,7 @@ export class Art {
       const baseDir = dir==='up' ? 'up' : (dir==='down' ? 'down' : 'side');
       const id = baseDir==='up' ? 'player_up' : (baseDir==='side' ? `player_walk_${Math.floor(walk*8)%3}` : 'player_down');
       const flip = baseDir==='side' && facing==='right';
-      this.shadow(ctx,x,y+4,16,5,.22);
+      this.shadow(ctx,x,y+11,16,5,.22);
       if(this.drawCharacterAsset(ctx,id,x,y+10,{anchor:'ground',flip,h:PLAYER_DRAW_HEIGHT,cropBottom:2})){
         if(attackCd>0) this.drawToolSwing(ctx,x,y,tool,facing,baseDir,attackCd);
         if(charge>0){ ctx.save(); ctx.strokeStyle=`rgba(255,216,90,${.25+charge*.5})`; ctx.lineWidth=2+charge*4; ctx.beginPath(); ctx.arc(x,y-14,18+charge*8,0,TWO_PI); ctx.stroke(); ctx.restore(); }
@@ -228,9 +228,10 @@ export class Art {
     if(this.assetsReady){
       let id = entity?.carry ? 'monkey_carry' : (order?.type==='combat' ? 'monkey_attack' : `monkey_walk_${Math.floor(walk*7)%3}`);
       if(!entity || (!entity.carry && !order && Math.floor(walk*7)%3===0)) id='monkey_down';
-      const flip = entity?.facing==='right';
-      this.shadow(ctx,x,y+3,12,4,.22);
-      if(this.drawCharacterAsset(ctx,id,x,y+8,{anchor:'ground',flip,h:MONKEY_DRAW_HEIGHT,cropBottom:2})){
+      const isSide = id.includes('walk') || id.includes('side') || id.includes('attack') || id.includes('carry');
+      const flip = isSide && entity?.facing==='left';
+      this.shadow(ctx,x,y+9,14,4,.22);
+      if(this.drawCharacterAsset(ctx,id,x,y+9,{anchor:'ground',flip,h:MONKEY_DRAW_HEIGHT,cropBottom:2})){
         if(order){ ctx.save(); ctx.fillStyle='rgba(255,255,255,.95)'; ctx.beginPath(); ctx.arc(x+15,y-32,8,0,TWO_PI); ctx.fill(); ctx.strokeStyle=COLORS.ink; ctx.lineWidth=2; ctx.stroke(); this.drawMiniTaskIcon(ctx,x+15,y-32,order.type); ctx.restore(); }
         if(selected){ ctx.save(); ctx.strokeStyle=COLORS.yellow; ctx.lineWidth=3; ctx.beginPath(); ctx.arc(x,y-9,22,0,TWO_PI); ctx.stroke(); ctx.restore(); }
         return;
@@ -266,9 +267,9 @@ export class Art {
     if(this.assetsReady){
       const attacking = entity && entity.attackCd > (boss ? .6 : .45);
       const id = boss ? (attacking?'boss_attack':(entity?.facing==='left'||entity?.facing==='right'?'boss_side':'boss_down')) : (attacking?'goblin_attack':(entity?.facing==='left'||entity?.facing==='right'?'goblin_side':'goblin_down'));
-      const flip = entity?.facing==='right';
-      this.shadow(ctx,x,y+4,boss?24:15,boss?7:5,.3);
-      if(this.drawCharacterAsset(ctx,id,x,y+9,{anchor:'ground',flip,h:boss?BOSS_DRAW_HEIGHT:GOBLIN_DRAW_HEIGHT,cropBottom:2})) return;
+      const flip = entity?.facing==='left';
+      this.shadow(ctx,x,y+10,boss?24:15,boss?7:5,.3);
+      if(this.drawCharacterAsset(ctx,id,x,y+10,{anchor:'ground',flip,h:boss?BOSS_DRAW_HEIGHT:GOBLIN_DRAW_HEIGHT,cropBottom:2})) return;
     }
     this.shadow(ctx,x,y+3,boss?24:15,boss?8:5,.32);
     ctx.save(); ctx.translate(Math.round(x),Math.round(y)); if(entity?.facing==='left'||entity?.facing==='right'){ if(entity?.facing==='left') ctx.scale(-1,1); } const s=boss?1.45:1; const bob=Math.sin(walk*6)*1.3;
