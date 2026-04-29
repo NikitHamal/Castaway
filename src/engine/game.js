@@ -142,6 +142,7 @@ export class Game {
     p.hunger=Math.max(0,p.hunger-dt*(p.onRaft ? .68 : .42));
     if(p.hunger<=0) this.damagePlayer(4*dt); else p.stamina=clamp(p.stamina+30*dt,0,p.maxStamina);
     const tile=this.world.tile(Math.floor(p.x/TILE),Math.floor(p.y/TILE));
+    if(tile==='water' && !p.onRaft) this.unstickEntity(p,p.respawn || this.world.spawn);
     if(tile==='swamp' && !p.onRaft){ p.stamina=Math.max(0,p.stamina-10*dt); if(Math.random()<dt*.25) this.addFloat('poison fumes',p.x,p.y-40,'#b8ff78'); }
     if(tile==='ash' && !p.onRaft && Math.random()<dt*.2) { this.damagePlayer(2); this.addFloat('hot ash',p.x,p.y-40,COLORS.orange); }
   }
@@ -151,6 +152,21 @@ export class Game {
     if(!w.isBlocked(e.x,e.y+dy,r,opts)) e.y+=dy;
     e.x=clamp(e.x,8,w.w*TILE-8); e.y=clamp(e.y,8,w.h*TILE-8);
     return distance(ox,oy,e.x,e.y);
+  }
+  unstickEntity(e,anchor=null){
+    const safe=(x,y)=>!this.world.isBlocked(x,y,9,{onRaft:false}) && this.world.isWalkableTile(Math.floor(x/TILE),Math.floor(y/TILE),{onRaft:false});
+    if(safe(e.x,e.y)) return false;
+    const origins=[];
+    if(anchor) origins.push(anchor);
+    origins.push({x:e.x,y:e.y}, this.world.spawn);
+    for(const o of origins){
+      for(let r=1;r<=8;r++) for(let a=0;a<TWO_PI;a+=Math.PI/6){
+        const x=clamp(o.x+Math.cos(a)*r*TILE*.65,12,this.world.w*TILE-12);
+        const y=clamp(o.y+Math.sin(a)*r*TILE*.65,12,this.world.h*TILE-12);
+        if(safe(x,y)){ e.x=x; e.y=y; e.path=[]; e.pathTimer=0; return true; }
+      }
+    }
+    return false;
   }
   lineClear(x1,y1,x2,y2,r=9,opts={}){
     const d=distance(x1,y1,x2,y2), steps=Math.max(1,Math.ceil(d/18));
@@ -170,7 +186,8 @@ export class Game {
     if(Math.abs(vx)>.15) e.facing=vx<0?'left':'right'; else e.facing=vy<0?'up':'down';
     const moved=this.moveEntity(e,vx*speed*dt,vy*speed*dt,{...opts,radius});
     e.stuckTime = moved<.2 ? (e.stuckTime||0)+dt : 0;
-    if(e.stuckTime>.6){ e.pathTimer=0; e.stuckTime=0; }
+    if(e.stuckTime>.6){ e.pathTimer=0; }
+    if(e.stuckTime>1.45){ this.unstickEntity(e,opts.rescueTo||this.player||this.world.spawn); e.stuckTime=0; }
     return d;
   }
   screenImpact(power=.12){ this.hitStop=Math.max(this.hitStop,Math.min(.16,power)); this.shake=Math.max(this.shake,Math.min(.35,power*1.8)); }
@@ -447,7 +464,7 @@ export class Game {
     else if(m.order.type==='craft') this.monkeyCraft(m,dt);
     else if(m.order.type==='combat') this.monkeyCombat(m,dt);
   }
-  monkeyMoveTo(m,x,y,speed,dt){ return this.moveToward(m,x,y,speed,dt,{radius:9}); }
+  monkeyMoveTo(m,x,y,speed,dt){ return this.moveToward(m,x,y,speed,dt,{radius:9,rescueTo:this.player,maxNodes:1400}); }
   monkeyHarvest(m,dt){
     if(m.carry){ this.monkeyDepositCarry(m,dt); return; }
     const type=m.order.resourceType; const target=this.world.nearestResource(m.x,m.y,r=> type==='tree'?r.type==='tree': type==='rock'?r.type==='rock'||r.type==='iron': r.type===type,99999);

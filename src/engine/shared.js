@@ -14,13 +14,6 @@ export const TWO_PI = Math.PI * 2;
 export const RENDER_SCALE_BASE = 1.35;
 
 export const GENERATED_ASSETS = {
-  "player_down": "assets/generated/curated/characters/player_down.png",
-  "player_up": "assets/generated/curated/characters/player_up.png",
-  "player_side": "assets/generated/curated/characters/player_side.png",
-  "player_walk_0": "assets/generated/curated/characters/player_walk_0.png",
-  "player_walk_1": "assets/generated/curated/characters/player_walk_1.png",
-  "player_walk_2": "assets/generated/curated/characters/player_walk_2.png",
-  "player_carry": "assets/generated/curated/characters/player_carry.png",
   "monkey_down": "assets/generated/curated/characters/monkey_down.png",
   "monkey_up": "assets/generated/curated/characters/monkey_up.png",
   "monkey_side": "assets/generated/curated/characters/monkey_side.png",

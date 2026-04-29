@@ -222,10 +222,10 @@ export class Art {
     }
   }
   drawTile(ctx,type,x,y,tx,ty,time){
+    if (type==='water' || type==='shallow' || type==='lava') { this.drawTilePattern(ctx,type,x,y,tx,ty,time); return; }
     const key=TILE_ASSET_KEYS[type];
     if(key && this.drawTileAsset(ctx,key,x,y)) return;
-    if (type==='water' || type==='shallow' || type==='lava') this.drawTilePattern(ctx,type,x,y,tx,ty,time);
-    else ctx.drawImage(this.tileCanvases[type] || this.tileCanvases.grass, Math.round(x), Math.round(y));
+    ctx.drawImage(this.tileCanvases[type] || this.tileCanvases.grass, Math.round(x), Math.round(y), TILE, TILE);
   }
   shadow(ctx,x,y,w=34,h=12,a=.32){ ctx.save(); ctx.fillStyle=`rgba(0,0,0,${a})`; ctx.beginPath(); ctx.ellipse(x,y,w,h,0,0,TWO_PI); ctx.fill(); ctx.restore(); }
   outlineRect(ctx,x,y,w,h,c=COLORS.ink){ ctx.strokeStyle=c; ctx.lineWidth=2; ctx.strokeRect(Math.round(x)+.5,Math.round(y)+.5,Math.round(w),Math.round(h)); }
