@@ -1,25 +1,19 @@
 // Shared constants, data tables and tiny utilities for the Castaway runtime.
-export const TILE = 36;
+export const TILE = 48;
 export const USE_CURATED_UI_TEXTURES = false;
-export const PLAYER_DRAW_HEIGHT = 44;
-export const MONKEY_DRAW_HEIGHT = 36;
-export const GOBLIN_DRAW_HEIGHT = 48;
-export const BOSS_DRAW_HEIGHT = 72;
+export const PLAYER_DRAW_HEIGHT = 60;
+export const MONKEY_DRAW_HEIGHT = 50;
+export const GOBLIN_DRAW_HEIGHT = 64;
+export const BOSS_DRAW_HEIGHT = 96;
 export const WORLD_W = 96;
 export const WORLD_H = 96;
-export const SAVE_KEY = 'castaway_mimics_save_v2';
-export const SAVE_VERSION = 2;
+export const SAVE_KEY = 'castaway_mimics_save_v3';
+export const SAVE_VERSION = 3;
 export const ATTACK_COOLDOWN = 0.28;
 export const TWO_PI = Math.PI * 2;
+export const RENDER_SCALE_BASE = 1.35;
 
 export const GENERATED_ASSETS = {
-  "player_down": "assets/generated/curated/characters/player_down.png",
-  "player_up": "assets/generated/curated/characters/player_up.png",
-  "player_side": "assets/generated/curated/characters/player_side.png",
-  "player_walk_0": "assets/generated/curated/characters/player_walk_0.png",
-  "player_walk_1": "assets/generated/curated/characters/player_walk_1.png",
-  "player_walk_2": "assets/generated/curated/characters/player_walk_2.png",
-  "player_carry": "assets/generated/curated/characters/player_carry.png",
   "monkey_down": "assets/generated/curated/characters/monkey_down.png",
   "monkey_up": "assets/generated/curated/characters/monkey_up.png",
   "monkey_side": "assets/generated/curated/characters/monkey_side.png",
@@ -207,7 +201,19 @@ export const GENERATED_ASSETS = {
   "fx_torch_0": "assets/generated/curated/fx/fx_torch_0.png",
   "fx_smoke": "assets/generated/curated/fx/fx_smoke.png",
   "fx_splash": "assets/generated/curated/fx/fx_splash.png",
-  "fx_poison": "assets/generated/curated/fx/fx_poison.png"
+  "fx_poison": "assets/generated/curated/fx/fx_poison.png",
+  "sw_idle_body": "assets/generated/curated/characters/swordsman/idle_body.png",
+  "sw_idle_head": "assets/generated/curated/characters/swordsman/idle_head.png",
+  "sw_idle_sword": "assets/generated/curated/characters/swordsman/idle_sword.png",
+  "sw_idle_swordback": "assets/generated/curated/characters/swordsman/idle_sword_back.png",
+  "sw_walk_body": "assets/generated/curated/characters/swordsman/walk_body.png",
+  "sw_walk_head": "assets/generated/curated/characters/swordsman/walk_head.png",
+  "sw_walk_sword": "assets/generated/curated/characters/swordsman/walk_sword.png",
+  "sw_walk_swordback": "assets/generated/curated/characters/swordsman/walk_sword_back.png",
+  "sw_attack_body": "assets/generated/curated/characters/swordsman/attack_body.png",
+  "sw_attack_head": "assets/generated/curated/characters/swordsman/attack_head.png",
+  "sw_attack_sword": "assets/generated/curated/characters/swordsman/attack_sword.png",
+  "sw_attack_swordback": "assets/generated/curated/characters/swordsman/attack_sword_back.png"
 };
 export const GENERATED_SHEETS = {
   "characters": "assets/generated/sheets/characters.png",
