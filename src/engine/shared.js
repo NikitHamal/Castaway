@@ -1,14 +1,14 @@
 // Shared constants, data tables and tiny utilities for the Castaway runtime.
-export const TILE = 36;
+export const TILE = 48;
 export const USE_CURATED_UI_TEXTURES = false;
-export const PLAYER_DRAW_HEIGHT = 44;
-export const MONKEY_DRAW_HEIGHT = 36;
-export const GOBLIN_DRAW_HEIGHT = 48;
-export const BOSS_DRAW_HEIGHT = 72;
+export const PLAYER_DRAW_HEIGHT = 60;
+export const MONKEY_DRAW_HEIGHT = 50;
+export const GOBLIN_DRAW_HEIGHT = 64;
+export const BOSS_DRAW_HEIGHT = 96;
 export const WORLD_W = 96;
 export const WORLD_H = 96;
-export const SAVE_KEY = 'castaway_mimics_save_v2';
-export const SAVE_VERSION = 2;
+export const SAVE_KEY = 'castaway_mimics_save_v3';
+export const SAVE_VERSION = 3;
 export const ATTACK_COOLDOWN = 0.28;
 export const TWO_PI = Math.PI * 2;
 

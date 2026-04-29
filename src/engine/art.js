@@ -20,6 +20,8 @@ import {
   hash2
 } from './shared.js';
 
+const TILE_KEY_PREFIX = 'tile_';
+
 export class Art {
   constructor(){
     this.tileCanvases = {};
@@ -38,11 +40,70 @@ export class Art {
       img.src = src;
     });
   }
+  // Cleans up edge fringing from generated PNGs.
+  // For tile assets: force alpha to 255 (tiles are fully opaque, kills seams).
+  // For character/prop/icon assets: alpha threshold and white-halo cleanup so
+  // edges become crisply transparent in production rendering.
+  cleanupImage(img, key){
+    try {
+      const w = img.width, h = img.height;
+      const c = document.createElement('canvas'); c.width=w; c.height=h;
+      const ctx = c.getContext('2d');
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(img, 0, 0);
+      const data = ctx.getImageData(0,0,w,h);
+      const px = data.data;
+      const isTile = key.startsWith(TILE_KEY_PREFIX);
+      if (isTile){
+        // Force fully opaque, also clamp any near-white halo at edges to nearest non-white sample.
+        for (let i=0;i<px.length;i+=4){ px[i+3] = 255; }
+      } else {
+        // First pass: alpha threshold. Pixels with alpha below cutoff become fully transparent.
+        // Pixels above cutoff get fully opaque alpha to remove fringing.
+        const alphaCut = 138;
+        const whiteHaloCut = 230; // r,g,b mean above this and alpha < 220 -> kill.
+        for (let i=0;i<px.length;i+=4){
+          const a = px[i+3];
+          if (a === 0) continue;
+          const r = px[i], g = px[i+1], b = px[i+2];
+          // Kill semi-transparent white/cream halo pixels regardless of threshold.
+          const lum = (r+g+b)/3;
+          if (a < 220 && lum > whiteHaloCut){ px[i+3] = 0; continue; }
+          if (a < alphaCut){ px[i+3] = 0; continue; }
+          // Snap to opaque to avoid soft edges.
+          px[i+3] = 255;
+        }
+        // Second pass: erode 1px halo of pixels that are white-ish AND adjacent to a transparent neighbor.
+        const get = (x,y,off)=>px[((y*w)+x)*4+off];
+        const set = (x,y,off,val)=>{ px[((y*w)+x)*4+off]=val; };
+        for (let y=0;y<h;y++){
+          for (let x=0;x<w;x++){
+            const a = get(x,y,3); if (a===0) continue;
+            // Edge if any 4-neighbor is transparent (or out-of-bounds counts as transparent).
+            const tNbr = (x===0 || x===w-1 || y===0 || y===h-1) ||
+              get(x-1,y,3)===0 || get(x+1,y,3)===0 || get(x,y-1,3)===0 || get(x,y+1,3)===0;
+            if (!tNbr) continue;
+            const r=get(x,y,0), g=get(x,y,1), b=get(x,y,2);
+            const lum=(r+g+b)/3;
+            // If pixel is bright/white-ish at the silhouette, kill it.
+            if (lum > 218) set(x,y,3,0);
+          }
+        }
+      }
+      ctx.putImageData(data,0,0);
+      return c;
+    } catch(e){
+      // If anything goes wrong (CORS, etc.), fall back to original image.
+      return img;
+    }
+  }
   async loadAssets(){
     if(this.assetsReady) return true;
     const loads = [];
     for(const [key,path] of Object.entries(GENERATED_ASSETS)){
-      loads.push(this.loadImage(path).then(img => { this.sprites[key]=img; }).catch(err => { this.assetErrors.push(err.message); }));
+      loads.push(this.loadImage(path).then(img => {
+        this.sprites[key] = this.cleanupImage(img, key);
+      }).catch(err => { this.assetErrors.push(err.message); }));
     }
     for(const [key,path] of Object.entries(GENERATED_SHEETS)){
       loads.push(this.loadImage(path).then(img => { this.sheets[key]=img; }).catch(err => { this.assetErrors.push(err.message); }));
@@ -65,7 +126,6 @@ export class Art {
     if(anchor==='ground') dy=Math.round(y-h);
     else if(anchor==='topleft'){ dx=Math.round(x); dy=Math.round(y); }
     ctx.save(); ctx.globalAlpha*=alpha;
-    if(opts.tint){ ctx.globalCompositeOperation='source-over'; }
     if(opts.flip){ ctx.translate(dx+w,dy); ctx.scale(-1,1); ctx.drawImage(img,0,0,w,h); }
     else ctx.drawImage(img,dx,dy,w,h);
     ctx.restore();
@@ -91,7 +151,13 @@ export class Art {
     ctx.restore();
     return true;
   }
-  drawTileAsset(ctx,id,x,y){ const img=this.sprites[id]; if(!img) return false; const dx=Math.floor(x), dy=Math.floor(y); ctx.drawImage(img,dx,dy,TILE+1,TILE+1); return true; }
+  // Tiles draw without overdraw bleed; we use exact TILE size at integer positions.
+  drawTileAsset(ctx,id,x,y){
+    const img=this.sprites[id]; if(!img) return false;
+    const dx=Math.floor(x), dy=Math.floor(y);
+    ctx.drawImage(img,dx,dy,TILE,TILE);
+    return true;
+  }
   px(ctx,x,y,w,h,c){ ctx.fillStyle=c; ctx.fillRect(Math.round(x),Math.round(y),Math.round(w),Math.round(h)); }
   makeTiles(){
     const types = ['grass','grass2','sand','water','shallow','stone','path','swamp','ash','lava','floor','walltile'];
@@ -105,7 +171,7 @@ export class Art {
     const fill = color => { ctx.fillStyle=color; ctx.fillRect(x,y,TILE,TILE); };
     if (type === 'grass' || type === 'grass2') {
       fill(type==='grass' ? COLORS.grass : '#559f45');
-      for (let i=0;i<20;i++){
+      for (let i=0;i<28;i++){
         const h = hash2(tx*31+i,ty*17+i,11); const h2 = hash2(tx*13+i,ty*23+i,4);
         ctx.fillStyle = h > .55 ? COLORS.grassLight : COLORS.grassDark;
         ctx.fillRect(x + Math.floor(h*TILE), y + Math.floor(h2*TILE), h>.7?2:1, h2>.6?2:1);
@@ -113,46 +179,46 @@ export class Art {
       if (type==='grass2'){
         for (let i=0;i<3;i++){
           ctx.fillStyle = ['#d84165','#f2d66b','#7c4dcc'][i];
-          ctx.fillRect(x+4+Math.floor(hash2(tx+i,ty,99)*24), y+4+Math.floor(hash2(tx,ty+i,98)*24),2,2);
+          ctx.fillRect(x+5+Math.floor(hash2(tx+i,ty,99)*32), y+5+Math.floor(hash2(tx,ty+i,98)*32),3,3);
         }
       }
     } else if (type === 'sand') {
       fill(COLORS.sand);
-      for (let i=0;i<18;i++){
+      for (let i=0;i<24;i++){
         const h=hash2(tx*3+i,ty*7-i,3), h2=hash2(tx*5-i,ty*11+i,8);
         ctx.fillStyle = h>.5 ? COLORS.sandLight : COLORS.sandDark;
         ctx.fillRect(x+Math.floor(h*TILE), y+Math.floor(h2*TILE), h>.7?3:1, 1);
       }
     } else if (type === 'water' || type === 'shallow') {
       fill(type==='water' ? COLORS.water : COLORS.shallow);
-      for (let i=0;i<7;i++){
+      for (let i=0;i<10;i++){
         const yy = (Math.floor(hash2(tx+i,ty-i,4)*TILE) + Math.floor(time*16+i*5)) % TILE;
         ctx.fillStyle = i%2 ? COLORS.waterDark : COLORS.waterLight;
         ctx.globalAlpha = type==='water' ? .55 : .45;
-        ctx.fillRect(x+Math.floor(hash2(tx-i,ty+i,5)*TILE), y+yy, 6+Math.floor(hash2(tx+i,ty+i,7)*8), 1);
+        ctx.fillRect(x+Math.floor(hash2(tx-i,ty+i,5)*TILE), y+yy, 7+Math.floor(hash2(tx+i,ty+i,7)*10), 1);
         ctx.globalAlpha = 1;
       }
     } else if (type === 'stone' || type === 'floor') {
       fill(type==='floor'?'#917d60':COLORS.stone);
       ctx.strokeStyle = type==='floor'?'#5d5142':COLORS.stoneDark; ctx.lineWidth=1;
-      for (let yy=0; yy<=TILE; yy+=8){ ctx.beginPath(); ctx.moveTo(x,y+yy); ctx.lineTo(x+TILE,y+yy); ctx.stroke(); }
-      for (let xx=0; xx<=TILE; xx+=10){ ctx.beginPath(); ctx.moveTo(x+xx+(ty%2)*4,y); ctx.lineTo(x+xx+((ty+1)%2)*4,y+TILE); ctx.stroke(); }
-      for (let i=0;i<8;i++){ ctx.fillStyle=COLORS.stoneLight; ctx.fillRect(x+Math.floor(hash2(tx+i,ty,41)*TILE), y+Math.floor(hash2(tx,ty+i,42)*TILE),1,1); }
+      for (let yy=0; yy<=TILE; yy+=10){ ctx.beginPath(); ctx.moveTo(x,y+yy); ctx.lineTo(x+TILE,y+yy); ctx.stroke(); }
+      for (let xx=0; xx<=TILE; xx+=12){ ctx.beginPath(); ctx.moveTo(x+xx+(ty%2)*4,y); ctx.lineTo(x+xx+((ty+1)%2)*4,y+TILE); ctx.stroke(); }
+      for (let i=0;i<10;i++){ ctx.fillStyle=COLORS.stoneLight; ctx.fillRect(x+Math.floor(hash2(tx+i,ty,41)*TILE), y+Math.floor(hash2(tx,ty+i,42)*TILE),1,1); }
     } else if (type === 'path') {
       fill('#9a8558');
-      for(let i=0;i<24;i++){ const h=hash2(tx+i,ty-i,22), h2=hash2(tx-i,ty+i,23); ctx.fillStyle=h>.55?'#b2a476':'#6e6147'; ctx.beginPath(); ctx.ellipse(x+h*TILE,y+h2*TILE,1+h*2,1+h2*2,0,0,TWO_PI); ctx.fill(); }
+      for(let i=0;i<28;i++){ const h=hash2(tx+i,ty-i,22), h2=hash2(tx-i,ty+i,23); ctx.fillStyle=h>.55?'#b2a476':'#6e6147'; ctx.beginPath(); ctx.ellipse(x+h*TILE,y+h2*TILE,1+h*2,1+h2*2,0,0,TWO_PI); ctx.fill(); }
     } else if (type === 'swamp') {
       fill('#486b3d');
-      for(let i=0;i<12;i++){ const h=hash2(tx+i,ty,31), h2=hash2(tx,ty+i,32); ctx.fillStyle=h>.5?'#75b069':'#2e4f31'; ctx.globalAlpha=.7; ctx.fillRect(x+h*TILE,y+h2*TILE,3,1); ctx.globalAlpha=1; }
+      for(let i=0;i<14;i++){ const h=hash2(tx+i,ty,31), h2=hash2(tx,ty+i,32); ctx.fillStyle=h>.5?'#75b069':'#2e4f31'; ctx.globalAlpha=.7; ctx.fillRect(x+h*TILE,y+h2*TILE,3,1); ctx.globalAlpha=1; }
     } else if (type === 'ash') {
       fill('#615549');
-      for(let i=0;i<16;i++){ const h=hash2(tx+i,ty,35), h2=hash2(tx,ty+i,36); ctx.fillStyle=h>.7?'#a26331':(h>.4?'#887864':'#403b38'); ctx.fillRect(x+h*TILE,y+h2*TILE,h>.5?2:1,1); }
+      for(let i=0;i<18;i++){ const h=hash2(tx+i,ty,35), h2=hash2(tx,ty+i,36); ctx.fillStyle=h>.7?'#a26331':(h>.4?'#887864':'#403b38'); ctx.fillRect(x+h*TILE,y+h2*TILE,h>.5?2:1,1); }
     } else if (type === 'lava') {
       fill('#5e241f');
-      for(let i=0;i<8;i++){ const h=hash2(tx+i,ty,39), h2=hash2(tx,ty+i,40); ctx.strokeStyle=h>.55?'#ffcc45':'#ff7a25'; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(x+h*TILE,y+h2*TILE); ctx.lineTo(x+h*TILE+8,y+h2*TILE+(h-.5)*4); ctx.stroke(); }
+      for(let i=0;i<10;i++){ const h=hash2(tx+i,ty,39), h2=hash2(tx,ty+i,40); ctx.strokeStyle=h>.55?'#ffcc45':'#ff7a25'; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(x+h*TILE,y+h2*TILE); ctx.lineTo(x+h*TILE+10,y+h2*TILE+(h-.5)*5); ctx.stroke(); }
     } else if (type === 'walltile') {
       fill('#3c3732');
-      ctx.fillStyle='#504941'; ctx.fillRect(x,y+20,TILE,12); ctx.strokeStyle='#201b19'; for(let xx=0;xx<TILE;xx+=8){ctx.strokeRect(x+xx,y+4,8,12);} ctx.strokeRect(x,y+4,TILE,24);
+      ctx.fillStyle='#504941'; ctx.fillRect(x,y+24,TILE,16); ctx.strokeStyle='#201b19'; for(let xx=0;xx<TILE;xx+=10){ctx.strokeRect(x+xx,y+5,10,16);} ctx.strokeRect(x,y+5,TILE,32);
     }
   }
   drawTile(ctx,type,x,y,tx,ty,time){
@@ -161,21 +227,23 @@ export class Art {
     if (type==='water' || type==='shallow' || type==='lava') this.drawTilePattern(ctx,type,x,y,tx,ty,time);
     else ctx.drawImage(this.tileCanvases[type] || this.tileCanvases.grass, Math.round(x), Math.round(y));
   }
-  shadow(ctx,x,y,w=34,h=12,a=.28){ ctx.save(); ctx.fillStyle=`rgba(0,0,0,${a})`; ctx.beginPath(); ctx.ellipse(x,y,w,h,0,0,TWO_PI); ctx.fill(); ctx.restore(); }
+  shadow(ctx,x,y,w=34,h=12,a=.32){ ctx.save(); ctx.fillStyle=`rgba(0,0,0,${a})`; ctx.beginPath(); ctx.ellipse(x,y,w,h,0,0,TWO_PI); ctx.fill(); ctx.restore(); }
   outlineRect(ctx,x,y,w,h,c=COLORS.ink){ ctx.strokeStyle=c; ctx.lineWidth=2; ctx.strokeRect(Math.round(x)+.5,Math.round(y)+.5,Math.round(w),Math.round(h)); }
   drawPlayer(ctx,x,y,dir='down',walk=0,charge=0,tool='hand',facing='right',attackCd=0){
     if(this.assetsReady){
       const baseDir = dir==='up' ? 'up' : (dir==='down' ? 'down' : 'side');
       const id = baseDir==='up' ? 'player_up' : (baseDir==='side' ? `player_walk_${Math.floor(walk*8)%3}` : 'player_down');
+      // Side/walk sprites point left by default; flip when facing right.
       const flip = baseDir==='side' && facing==='right';
-      this.shadow(ctx,x,y+4,16,5,.22);
-      if(this.drawCharacterAsset(ctx,id,x,y+10,{anchor:'ground',flip,h:PLAYER_DRAW_HEIGHT,cropBottom:2})){
+      // Shadow at the player's feet (just below the ground anchor).
+      this.shadow(ctx,x,y+10,18,6,.32);
+      if(this.drawCharacterAsset(ctx,id,x,y+12,{anchor:'ground',flip,h:PLAYER_DRAW_HEIGHT,cropBottom:2})){
         if(attackCd>0) this.drawToolSwing(ctx,x,y,tool,facing,baseDir,attackCd);
         if(charge>0){ ctx.save(); ctx.strokeStyle=`rgba(255,216,90,${.25+charge*.5})`; ctx.lineWidth=2+charge*4; ctx.beginPath(); ctx.arc(x,y-14,18+charge*8,0,TWO_PI); ctx.stroke(); ctx.restore(); }
         return;
       }
     }
-    this.shadow(ctx,x,y+3,16,6,.28);
+    this.shadow(ctx,x,y+8,18,7,.32);
     ctx.save(); ctx.translate(Math.round(x),Math.round(y)); if(dir==='side' && facing==='left'){ ctx.scale(-1,1); }
     const bob = Math.sin(walk*8)*1.5;
     const step = Math.sin(walk*8) > 0 ? 1 : -1;
@@ -228,15 +296,17 @@ export class Art {
     if(this.assetsReady){
       let id = entity?.carry ? 'monkey_carry' : (order?.type==='combat' ? 'monkey_attack' : `monkey_walk_${Math.floor(walk*7)%3}`);
       if(!entity || (!entity.carry && !order && Math.floor(walk*7)%3===0)) id='monkey_down';
-      const flip = entity?.facing==='right';
-      this.shadow(ctx,x,y+3,12,4,.22);
-      if(this.drawCharacterAsset(ctx,id,x,y+8,{anchor:'ground',flip,h:MONKEY_DRAW_HEIGHT,cropBottom:2})){
+      // Monkey side sprites face RIGHT in the source asset; flip when entity faces LEFT.
+      const flip = entity?.facing==='left';
+      // Position shadow at feet so it sits properly under the monkey.
+      this.shadow(ctx,x,y+8,14,5,.30);
+      if(this.drawCharacterAsset(ctx,id,x,y+10,{anchor:'ground',flip,h:MONKEY_DRAW_HEIGHT,cropBottom:2})){
         if(order){ ctx.save(); ctx.fillStyle='rgba(255,255,255,.95)'; ctx.beginPath(); ctx.arc(x+15,y-32,8,0,TWO_PI); ctx.fill(); ctx.strokeStyle=COLORS.ink; ctx.lineWidth=2; ctx.stroke(); this.drawMiniTaskIcon(ctx,x+15,y-32,order.type); ctx.restore(); }
         if(selected){ ctx.save(); ctx.strokeStyle=COLORS.yellow; ctx.lineWidth=3; ctx.beginPath(); ctx.arc(x,y-9,22,0,TWO_PI); ctx.stroke(); ctx.restore(); }
         return;
       }
     }
-    this.shadow(ctx,x,y+2,13,5,.25);
+    this.shadow(ctx,x,y+5,15,6,.32);
     ctx.save(); ctx.translate(Math.round(x),Math.round(y)); if(entity?.facing==='left'){ ctx.scale(-1,1); }
     const bob = Math.sin(walk*7)*1.5;
     ctx.strokeStyle='#6b3b24'; ctx.lineWidth=4; ctx.beginPath(); ctx.arc(-13,-14,8,Math.PI*.1,Math.PI*1.7); ctx.stroke();
@@ -266,11 +336,12 @@ export class Art {
     if(this.assetsReady){
       const attacking = entity && entity.attackCd > (boss ? .6 : .45);
       const id = boss ? (attacking?'boss_attack':(entity?.facing==='left'||entity?.facing==='right'?'boss_side':'boss_down')) : (attacking?'goblin_attack':(entity?.facing==='left'||entity?.facing==='right'?'goblin_side':'goblin_down'));
-      const flip = entity?.facing==='right';
-      this.shadow(ctx,x,y+4,boss?24:15,boss?7:5,.3);
-      if(this.drawCharacterAsset(ctx,id,x,y+9,{anchor:'ground',flip,h:boss?BOSS_DRAW_HEIGHT:GOBLIN_DRAW_HEIGHT,cropBottom:2})) return;
+      // Goblin/boss side sprites face RIGHT by default; flip when facing LEFT.
+      const flip = entity?.facing==='left';
+      this.shadow(ctx,x,y+9,boss?26:16,boss?9:6,.36);
+      if(this.drawCharacterAsset(ctx,id,x,y+11,{anchor:'ground',flip,h:boss?BOSS_DRAW_HEIGHT:GOBLIN_DRAW_HEIGHT,cropBottom:2})) return;
     }
-    this.shadow(ctx,x,y+3,boss?24:15,boss?8:5,.32);
+    this.shadow(ctx,x,y+7,boss?26:16,boss?9:6,.36);
     ctx.save(); ctx.translate(Math.round(x),Math.round(y)); if(entity?.facing==='left'||entity?.facing==='right'){ if(entity?.facing==='left') ctx.scale(-1,1); } const s=boss?1.45:1; const bob=Math.sin(walk*6)*1.3;
     ctx.fillStyle=boss?'#8a3d4d':'#5aaa52';
     ctx.beginPath(); ctx.moveTo(-10*s,-24*s+bob); ctx.lineTo(-24*s,-30*s+bob); ctx.lineTo(-11*s,-13*s+bob); ctx.fill();
@@ -284,7 +355,7 @@ export class Art {
     ctx.restore();
   }
   drawTree(ctx,x,y,variant=0){
-    this.shadow(ctx,x,y+2,22,8,.3);
+    this.shadow(ctx,x,y+4,24,9,.34);
     ctx.save(); ctx.translate(Math.round(x),Math.round(y));
     ctx.strokeStyle=COLORS.ink; ctx.lineWidth=2;
     this.px(ctx,-5,-36,11,38,COLORS.woodDark); this.px(ctx,-2,-36,6,38,COLORS.wood);
@@ -299,14 +370,14 @@ export class Art {
     ctx.restore();
   }
   drawRock(ctx,x,y,iron=false){
-    this.shadow(ctx,x,y+3,18,6,.28); ctx.save(); ctx.translate(Math.round(x),Math.round(y));
+    this.shadow(ctx,x,y+5,20,7,.32); ctx.save(); ctx.translate(Math.round(x),Math.round(y));
     ctx.fillStyle=iron?'#66777b':COLORS.stoneDark; ctx.beginPath(); ctx.ellipse(0,0,20,12,0,0,TWO_PI); ctx.fill();
     ctx.fillStyle=iron?'#8ca1a2':COLORS.stone; ctx.beginPath(); ctx.moveTo(-19,2); ctx.lineTo(-10,-12); ctx.lineTo(5,-17); ctx.lineTo(20,-5); ctx.lineTo(17,9); ctx.lineTo(-12,13); ctx.closePath(); ctx.fill(); ctx.strokeStyle=COLORS.ink; ctx.lineWidth=2; ctx.stroke();
     ctx.fillStyle=iron?'#c0dddd':COLORS.stoneLight; ctx.beginPath(); ctx.moveTo(-10,-12); ctx.lineTo(1,-20); ctx.lineTo(5,-17); ctx.lineTo(-3,-4); ctx.closePath(); ctx.fill();
     ctx.restore();
   }
   drawBush(ctx,x,y){
-    this.shadow(ctx,x,y+2,15,5,.2); ctx.save(); ctx.translate(Math.round(x),Math.round(y));
+    this.shadow(ctx,x,y+4,16,6,.26); ctx.save(); ctx.translate(Math.round(x),Math.round(y));
     const blobs=[[-8,-2,10,8],[3,-6,12,11],[11,0,8,8],[-14,2,7,6]];
     for(const [bx,by,rx,ry] of blobs){ ctx.fillStyle='#407b36'; ctx.beginPath(); ctx.ellipse(bx,by,rx,ry,0,0,TWO_PI); ctx.fill(); ctx.strokeStyle=COLORS.ink; ctx.lineWidth=1.5; ctx.stroke(); ctx.fillStyle='#5daa4e'; ctx.beginPath(); ctx.ellipse(bx-2,by-2,Math.max(2,rx-4),Math.max(2,ry-4),0,0,TWO_PI); ctx.fill(); }
     ctx.fillStyle='#d84165'; for(const p of [[-3,-7],[8,1],[-14,1]]){ ctx.beginPath(); ctx.ellipse(p[0],p[1],2,2,0,0,TWO_PI); ctx.fill(); }
@@ -321,10 +392,10 @@ export class Art {
   }
   drawItem(ctx,item){
     const bob = Math.sin(item.t*4 + item.seed)*3;
-    this.shadow(ctx,item.sx,item.sy+6,10,3,.18); ctx.save(); ctx.translate(Math.round(item.sx),Math.round(item.sy+bob));
+    this.shadow(ctx,item.sx,item.sy+8,11,4,.22); ctx.save(); ctx.translate(Math.round(item.sx),Math.round(item.sy+bob));
     const iconKey=ICON_ASSET_KEYS[item.type];
-    if(iconKey && this.sprites[iconKey]) this.drawAsset(ctx,iconKey,0,0,{anchor:'center',scale:.78}); else this.drawIconShape(ctx,item.type,0,0,0.72);
-    if (item.qty > 1){ ctx.font='bold 10px monospace'; ctx.fillStyle='white'; ctx.strokeStyle='black'; ctx.lineWidth=3; ctx.strokeText(String(item.qty),7,8); ctx.fillText(String(item.qty),7,8); }
+    if(iconKey && this.sprites[iconKey]) this.drawAsset(ctx,iconKey,0,0,{anchor:'center',scale:.86}); else this.drawIconShape(ctx,item.type,0,0,0.84);
+    if (item.qty > 1){ ctx.font='bold 11px monospace'; ctx.fillStyle='white'; ctx.strokeStyle='black'; ctx.lineWidth=3; ctx.strokeText(String(item.qty),9,9); ctx.fillText(String(item.qty),9,9); }
     ctx.restore();
   }
   drawIconShape(ctx,type,x,y,s=1){
@@ -365,7 +436,7 @@ export class Art {
     const x=b.sx, y=b.sy, type=b.type;
     const assetKey=BUILDING_ASSET_KEYS[type];
     if(assetKey && this.assetsReady){
-      this.shadow(ctx,x,y+7,type==='galleon'?52:(type==='vault'?38:24),type==='galleon'?10:7,.22);
+      this.shadow(ctx,x,y+9,type==='galleon'?56:(type==='vault'?42:26),type==='galleon'?12:8,.26);
       const alpha=b.locked ? .72 : 1;
       if(this.drawAsset(ctx,assetKey,x,y+10,{anchor:'ground',alpha})){
         if((type==='workbench'||type==='forge') && b.queue && b.queue.length){ const job=b.queue[0]; ctx.fillStyle='rgba(0,0,0,.55)'; ctx.fillRect(x-24,y-62,48,8); ctx.fillStyle=COLORS.yellow; ctx.fillRect(x-24,y-62,48*job.progress/job.need,8); this.outlineRect(ctx,x-24,y-62,48,8); }

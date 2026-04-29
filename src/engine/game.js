@@ -1,6 +1,7 @@
 import { Input } from './input.js';
 import { Art } from './art.js';
 import { World } from './world.js';
+import { AudioEngine } from './audio.js';
 import {
   TILE,
   SAVE_KEY,
@@ -36,8 +37,9 @@ import {
 export class Game {
   constructor(canvas){
     this.canvas=canvas; this.ctx=canvas.getContext('2d'); this.ctx.imageSmoothingEnabled=false;
-    this.input=new Input(canvas); this.art=new Art();
+    this.input=new Input(canvas); this.art=new Art(); this.audio=new AudioEngine();
     this.camera={x:0,y:0}; this.messages=[]; this.particles=[]; this.floatText=[]; this.uiButtons=[];
+    this._lastFootstep=0; this._lastAmbient=null; this._lastMusicState=false; this._touchButtonHits={};
     this.hitStop=0; this.shake=0; this.damageFlash=0;
     this.seed=(Date.now() ^ 0x513ad) & 0x7fffffff; this.overworld=new World(this.seed,'overworld',1); this.world=this.overworld; this.dungeonReturn=null;
     this.player={x:this.world.spawn.x,y:this.world.spawn.y,dir:'down',facing:'right',walk:0,health:100,maxHealth:100,hunger:94,maxHunger:100,stamina:100,maxStamina:100,inv:{axe:1,pickaxe:1,hammer:1,berry:4,banana:1,monkey_munch:1},attackCd:0,invuln:0,charge:0,onRaft:false,respawn:{x:this.world.spawn.x,y:this.world.spawn.y}};
@@ -55,23 +57,45 @@ export class Game {
     this.canvas.height = Math.floor(window.innerHeight * dpr);
     this.ctx.imageSmoothingEnabled=false;
   }
+  // Responsive UI scaling — clamps content to the smaller dim so phones still get readable HUD.
+  uiScale(){
+    const min = Math.min(this.canvas.width, this.canvas.height);
+    return clamp(min/720, 0.62, 1.4);
+  }
   start(){
-    this.resize(); window.addEventListener('resize',()=>this.resize());
+    this.resize();
+    window.addEventListener('resize',()=>this.resize());
+    window.addEventListener('orientationchange',()=>setTimeout(()=>this.resize(),60));
     let last=performance.now();
     const loop=(ts)=>{ const dt=Math.min((ts-last)/1000,.05); last=ts; this.update(dt); this.render(); this.input.endFrame(); requestAnimationFrame(loop); };
     requestAnimationFrame(loop);
+  }
+  // Audio side-channel: start music + match ambient layer to current biome/time.
+  updateAudio(){
+    if(!this.audio || !this.audio.unlocked) return;
+    if(!this._lastMusicState){ this.audio.startMusic(); this._lastMusicState=true; }
+    let ambient='overworld';
+    if(this.world.kind==='dungeon') ambient='dungeon';
+    else if(this.nightAmount()>.45) ambient='night';
+    if(ambient!==this._lastAmbient){ this.audio.setAmbient(ambient); this._lastAmbient=ambient; }
   }
   message(text, color=COLORS.white){ this.messages.unshift({text,color,t:5}); this.messages=this.messages.slice(0,6); }
   addFloat(text,x,y,color=COLORS.white){ this.floatText.push({text,x,y,t:1.2,color}); }
   update(dt){
     const input=this.input;
     input.mouse.worldX = input.mouse.x + this.camera.x; input.mouse.worldY = input.mouse.y + this.camera.y;
+    this.updateAudio();
     if(input.hit('f1')) this.helpOpen=!this.helpOpen;
-    if(input.hit('escape')) { if(this.craftOpen) this.craftOpen=false; else this.helpOpen=!this.helpOpen; }
+    if(input.hit('escape')) { if(this.craftOpen){this.craftOpen=false; this.audio.play('menu_close');} else {this.helpOpen=!this.helpOpen; this.audio.play(this.helpOpen?'menu_open':'menu_close');} }
     if(input.hit('l')) this.loadGame(); if(input.hit('n')) this.newGame();
     this.hitStop=Math.max(0,this.hitStop-dt); this.shake=Math.max(0,this.shake-dt); this.damageFlash=Math.max(0,this.damageFlash-dt*2.8);
     if(this.win || this.gameOver){ if(input.hit('enter')) this.newGame(); return; }
-    if(this.craftOpen){ this.updateCraftMenuInput(); }
+    // Hit-test UI buttons (hotbar slots + craft menu) before tryAction so taps don't both trigger UI and an attack.
+    if(input.mouse.clicked){
+      const mx=input.mouse.x, my=input.mouse.y;
+      for(const b of this.uiButtons){ if(mx>=b.x && my>=b.y && mx<=b.x+b.w && my<=b.y+b.h){ b.cb(); input.mouse.clicked=false; break; } }
+    }
+    if(this.craftOpen){ /* craft menu uses uiButtons too — already consumed above */ }
     else this.handleHotkeys();
     const simDt=this.hitStop>0?Math.min(dt,.006):dt;
     if(!this.craftOpen && !this.assetOpen && !this.paused) this.updateWorld(simDt);
@@ -82,13 +106,13 @@ export class Game {
     const input=this.input;
     if(input.hit('v')) { this.assetOpen=!this.assetOpen; this.message(this.assetOpen?'Asset viewer opened. [ / ] pages, V closes.':'Asset viewer closed.'); }
     if(this.assetOpen){ if(input.hit('[')) this.assetPage=(this.assetPage+SHEET_ORDER.length-1)%SHEET_ORDER.length; if(input.hit(']')) this.assetPage=(this.assetPage+1)%SHEET_ORDER.length; return; }
-    for(let i=0;i<10;i++) if(input.hit(String((i+1)%10))) this.selectedSlot=i;
-    if(input.hit('[')) this.selectedSlot=(this.selectedSlot+HOTBAR.length-1)%HOTBAR.length;
-    if(input.hit(']')) this.selectedSlot=(this.selectedSlot+1)%HOTBAR.length;
-    if(input.hit('tab')) this.selectedSlot=(this.selectedSlot+1)%HOTBAR.length;
+    for(let i=0;i<10;i++) if(input.hit(String((i+1)%10))){ this.selectedSlot=i; this.audio.play('select'); }
+    if(input.hit('[')){ this.selectedSlot=(this.selectedSlot+HOTBAR.length-1)%HOTBAR.length; this.audio.play('select'); }
+    if(input.hit(']')){ this.selectedSlot=(this.selectedSlot+1)%HOTBAR.length; this.audio.play('select'); }
+    if(input.hit('tab')){ this.selectedSlot=(this.selectedSlot+1)%HOTBAR.length; this.audio.play('select'); }
     if(input.hit('b')) this.cycleBuild();
     if(input.hit('f')) this.placeBlueprint();
-    if(input.hit('c')) this.craftOpen=true;
+    if(input.hit('c')){ this.craftOpen=true; this.audio.play('menu_open'); }
     if(input.hit('m')) this.toggleMimic();
     if(input.hit('e')) this.tryInteract();
     if(input.hit('space') || input.mouse.clicked) this.tryAction(input.mouse.clicked);
@@ -104,7 +128,7 @@ export class Game {
   updatePlayer(dt){
     const p=this.player, input=this.input;
     let dx=0,dy=0; if(input.down('w')||input.down('arrowup')) dy--; if(input.down('s')||input.down('arrowdown')) dy++; if(input.down('a')||input.down('arrowleft')) dx--; if(input.down('d')||input.down('arrowright')) dx++;
-    if(dx||dy){ const len=Math.hypot(dx,dy); dx/=len; dy/=len; if(Math.abs(dx)>.05) p.facing=dx<0?'left':'right'; p.dir=Math.abs(dx)>Math.abs(dy)?'side':(dy<0?'up':'down'); p.walk += dt*(p.onRaft?4:7); const sprint=input.down('shift') && p.stamina>5 && p.hunger>0; let speed=(p.onRaft?130:118)*(sprint?1.42:1); if(sprint) p.stamina=Math.max(0,p.stamina-18*dt); this.moveEntity(p,dx*speed*dt,dy*speed*dt,{onRaft:p.onRaft}); }
+    if(dx||dy){ const len=Math.hypot(dx,dy); dx/=len; dy/=len; if(Math.abs(dx)>.05) p.facing=dx<0?'left':'right'; p.dir=Math.abs(dx)>Math.abs(dy)?'side':(dy<0?'up':'down'); p.walk += dt*(p.onRaft?4:7); const sprint=input.down('shift') && p.stamina>5 && p.hunger>0; let speed=(p.onRaft?130:118)*(sprint?1.42:1); if(sprint) p.stamina=Math.max(0,p.stamina-18*dt); this.moveEntity(p,dx*speed*dt,dy*speed*dt,{onRaft:p.onRaft}); const tt=this.world.tile(Math.floor(p.x/TILE),Math.floor(p.y/TILE)); const ff=tt==='sand'?420:tt==='shallow'?620:tt==='swamp'?260:340; this.audio.play('footstep',{freq:ff, volume: sprint?1:.7}); }
     p.attackCd=Math.max(0,p.attackCd-dt); p.invuln=Math.max(0,p.invuln-dt);
     p.hunger=Math.max(0,p.hunger-dt*(p.onRaft ? .68 : .42));
     if(p.hunger<=0) this.damagePlayer(4*dt); else p.stamina=clamp(p.stamina+30*dt,0,p.maxStamina);
@@ -162,12 +186,12 @@ export class Game {
     // Pick up items.
     let picked=[];
     for(const it of [...w.items]) if(distance(p.x,p.y,it.x,it.y)<42){ addToBag(p.inv,it.type,it.qty); picked.push(`${it.qty}× ${itemName(it.type)}`); w.removeItem(it.id); this.discoverFromItem(it.type); }
-    if(picked.length){ this.message(`Picked up ${picked.join(', ')}.`); this.recordAction({kind:'pickup'}); return; }
+    if(picked.length){ this.message(`Picked up ${picked.join(', ')}.`); this.audio.play('pickup'); this.recordAction({kind:'pickup'}); return; }
     // Tame monkey from cage or wild.
     const cage=w.nearestBuilding(p.x,p.y,b=>b.type==='cage'&&b.cagedMonkey,58);
-    if(cage){ if((p.inv.monkey_munch||0)>0){ addToBag(p.inv,'monkey_munch',-1); cage.cagedMonkey=false; const m=this.spawnMonkey(cage.x,cage.y-10,true); this.message(`${m.name} joined your crew. Press M to teach it.`); this.recordAction({kind:'tame'}); } else this.message('A monkey rattles the cage. It wants Monkey Munch.'); return; }
+    if(cage){ if((p.inv.monkey_munch||0)>0){ addToBag(p.inv,'monkey_munch',-1); cage.cagedMonkey=false; const m=this.spawnMonkey(cage.x,cage.y-10,true); this.message(`${m.name} joined your crew. Press M to teach it.`); this.audio.play('tame'); this.audio.play('monkey_chitter'); this.recordAction({kind:'tame'}); } else this.message('A monkey rattles the cage. It wants Monkey Munch.'); return; }
     const wild=this.nearestMonkey(p.x,p.y,48,m=>!m.tamed);
-    if(wild){ if((p.inv.monkey_munch||0)>0){ addToBag(p.inv,'monkey_munch',-1); wild.tamed=true; wild.name=this.nextMonkeyName(); this.message(`${wild.name} has been tamed. Press M to teach it.`); } else this.message('The monkey sniffs your pack. Craft Monkey Munch to tame it.'); return; }
+    if(wild){ if((p.inv.monkey_munch||0)>0){ addToBag(p.inv,'monkey_munch',-1); wild.tamed=true; wild.name=this.nextMonkeyName(); this.message(`${wild.name} has been tamed. Press M to teach it.`); this.audio.play('tame'); this.audio.play('monkey_chitter'); } else this.message('The monkey sniffs your pack. Craft Monkey Munch to tame it.'); return; }
     // Blueprint resource add.
     const bp=w.nearestBlueprint(p.x,p.y,null,56);
     if(bp){ this.addResourcesToBlueprint(bp,p.inv); this.recordAction({kind:'blueprint_add', blueprintType:bp.type}); return; }
@@ -188,7 +212,7 @@ export class Game {
         this.message(got ? `Withdrew ${got}.` : `Chest contains: ${bagSummary(b.storage||{}) || 'nothing'}.`);
       } else {
         const moved=this.depositToChest(b,p.inv);
-        if(moved) { this.message(`Deposited ${moved}. Hold Shift+E to withdraw.`); this.recordAction({kind:'deposit',buildingType:'chest'}); }
+        if(moved) { this.message(`Deposited ${moved}. Hold Shift+E to withdraw.`); this.audio.play('deposit'); this.recordAction({kind:'deposit',buildingType:'chest'}); }
         else this.message(`Chest contains: ${bagSummary(b.storage||{}) || 'nothing'}. Hold Shift+E to withdraw.`);
       }
     } else if(b.type==='bed'){
@@ -284,10 +308,11 @@ export class Game {
   }
   eat(item){
     const p=this.player; if((p.inv[item]||0)<=0){ this.message(`You have no ${itemName(item)}.`); return; }
-    const food=ITEM_INFO[item]?.food || 44; addToBag(p.inv,item,-1); p.hunger=clamp(p.hunger+food,0,p.maxHunger); p.health=clamp(p.health+food*.22,0,p.maxHealth); this.addFloat(`+${food} food`,p.x,p.y-48,COLORS.yellow); this.message(`Ate ${itemName(item)}.`);
+    const food=ITEM_INFO[item]?.food || 44; addToBag(p.inv,item,-1); p.hunger=clamp(p.hunger+food,0,p.maxHunger); p.health=clamp(p.health+food*.22,0,p.maxHealth); this.addFloat(`+${food} food`,p.x,p.y-48,COLORS.yellow); this.message(`Ate ${itemName(item)}.`); this.audio.play('eat');
   }
   hitResource(r,power,tool){
     r.hp-=power; r.hitFlash=.12; this.screenImpact(.045); this.emitChips(r.x,r.y-18,r.type==='tree'?COLORS.wood:(r.type==='bush'?COLORS.grassLight:COLORS.stoneLight),8); this.addFloat('-',r.x,r.y-30,'#fff');
+    if(r.type==='tree'||r.type==='bush') this.audio.play('chop'); else this.audio.play('mine');
     if(r.hp<=0){
       if(r.type==='tree'){ this.world.addItem('wood',r.x,r.y,2+Math.floor(Math.random()*3)); this.world.addItem('fiber',r.x+8,r.y,1+Math.floor(Math.random()*2)); if(Math.random()<.35) this.world.addItem('banana',r.x-8,r.y,1); }
       else if(r.type==='rock'){ this.world.addItem('stone',r.x,r.y,2+Math.floor(Math.random()*3)); if(Math.random()<.18) this.world.addItem('iron',r.x+8,r.y,1); }
@@ -301,6 +326,8 @@ export class Game {
     const cost = weapon==='metal_sword'?16:(weapon==='hand'?5:12);
     if(!this.consumeStamina(cost)) return;
     this.faceToward(e.x,e.y);
+    this.audio.play(weapon==='metal_sword'?'attack_metal':'attack_swing');
+    this.audio.play('hit_flesh',{volume:.7});
     const d=Math.max(1,distance(this.player.x,this.player.y,e.x,e.y));
     const kx=(e.x-this.player.x)/d, ky=(e.y-this.player.y)/d;
     e.hp-=dmg; e.hitFlash=.22; e.pathTimer=0;
@@ -322,7 +349,7 @@ export class Game {
       const b=this.world.addBuilding(bp.type,bp.x,bp.y,{}); if(bp.type==='bed') this.player.respawn={x:b.x,y:b.y}; this.world.removeBlueprint(bp.id); this.message(`${BUILD_RECIPES[bp.type].name} built.`); this.onBuildComplete(bp.type);
     }
   }
-  onBuildComplete(type){ if(type==='workbench'){ this.unlocked.craft.pickaxe=true; this.unlocked.craft.sword=true; this.message('Discovery: Workbench recipes unlocked. Queue tools from C.'); } if(type==='forge') this.unlocked.craft.metal_sword=true; if(type==='raft') this.message('Raft ready. Interact with it to sail to another island.'); }
+  onBuildComplete(type){ this.audio.play('build_complete'); if(type==='workbench'){ this.unlocked.craft.pickaxe=true; this.unlocked.craft.sword=true; this.message('Discovery: Workbench recipes unlocked. Queue tools from C.'); } if(type==='forge') this.unlocked.craft.metal_sword=true; if(type==='raft') this.message('Raft ready. Interact with it to sail to another island.'); }
   placeBlueprint(){
     const item=this.currentHotbarItem(); const type=BUILD_RECIPES[item]?item:this.currentBuild; this.placeBlueprintAt(this.player.x + (this.player.dir==='side'?(this.player.facing==='left'?-42:42):0), this.player.y + (this.player.dir==='up'?-42:this.player.dir==='down'?42:0), type);
   }
@@ -330,7 +357,7 @@ export class Game {
     type=type||this.currentBuild; if(!this.unlocked.build[type]){ this.message('Blueprint locked.'); return; }
     const tx=Math.floor(wx/TILE), ty=Math.floor(wy/TILE); const x=tx*TILE+TILE/2, y=ty*TILE+TILE*.72;
     if(this.world.isBlocked(x,y,22,{onRaft:false}) || this.world.tile(tx,ty)==='water' || this.world.tile(tx,ty)==='lava'){ this.message('Cannot place blueprint there.'); return; }
-    const bp=this.world.addBlueprint(type,x,y); this.message(`${BUILD_RECIPES[type].name} blueprint placed. Press E to add resources, hammer to build.`); this.recordAction({kind:'place_blueprint',blueprintType:type}); return bp;
+    const bp=this.world.addBlueprint(type,x,y); this.message(`${BUILD_RECIPES[type].name} blueprint placed. Press E to add resources, hammer to build.`); this.audio.play('place'); this.recordAction({kind:'place_blueprint',blueprintType:type}); return bp;
   }
   updateBlueprints(){ for(const bp of this.world.blueprints){ bp.ready=Object.entries(bp.cost).every(([k,v])=>(bp.added[k]||0)>=v); } }
   updateCraftMenuInput(){
@@ -343,7 +370,7 @@ export class Game {
     if(r.station){ const station=this.world.nearestBuilding(p.x,p.y,b=>b.type===r.station,80); if(!station){ this.message(`Need to stand near a ${itemName(r.station)}.`); return; } if(!payCost(p.inv,r.cost)){ this.message(`Missing: ${formatCost(r.cost)}.`); return; } station.queue=station.queue||[]; station.queue.push({id,name:r.name,result:deepClone(r.result),progress:0,need:r.craftTime||5,unlockBuild:r.unlockBuild}); this.message(`${r.name} queued. Hammer the ${itemName(station.type)} or teach a monkey Craft.`); return; }
     if(!payCost(p.inv,r.cost)){ this.message(`Missing: ${formatCost(r.cost)}.`); return; }
     for(const [k,v] of Object.entries(r.result||{})) addToBag(p.inv,k,v);
-    this.message(`Crafted ${r.name}.`);
+    this.message(`Crafted ${r.name}.`); this.audio.play('craft');
   }
   hammerStation(station,amt){
     if(!station.queue || !station.queue.length){ this.message('No queued work here.'); return; }
@@ -372,7 +399,7 @@ export class Game {
   }
   startRaid(){
     if(this.world.kind!=='overworld') return;
-    const count=Math.min(6,1+Math.floor(this.day/2)); this.message(`Raid! ${count} goblin${count>1?'s are':' is'} probing your camp.`, COLORS.orange);
+    const count=Math.min(6,1+Math.floor(this.day/2)); this.message(`Raid! ${count} goblin${count>1?'s are':' is'} probing your camp.`, COLORS.orange); this.audio.play('raid_alert');
     for(let i=0;i<count;i++){
       const spawn=this.findRaidSpawn();
       this.world.addEnemy('goblin',spawn.x,spawn.y,{raid:true,path:[],pathTimer:0});
@@ -390,10 +417,10 @@ export class Game {
       else if(e.attackCd<=0){ e.attackCd=e.type==='boss'?1.2:.85; e.hitFlash=.08; if(target.type==='player') this.damagePlayer(e.type==='boss'?22:10); else if(target.type==='monkey') this.damageMonkey(target.ref,e.type==='boss'?20:8); else if(target.type==='building') this.damageBuilding(target.ref,e.type==='boss'?22:8); }
     }
   }
-  damagePlayer(amount){ const p=this.player; if(p.invuln>0 && amount>=1) return; p.health-=amount; if(amount>=1) { p.invuln=.55; this.damageFlash=1; this.screenImpact(.11); this.emitChips(p.x,p.y-18,COLORS.red,8); this.addFloat(`-${Math.ceil(amount)}`,p.x,p.y-48,COLORS.red); } if(p.health<=0){ this.playerDeath(); } }
+  damagePlayer(amount){ const p=this.player; if(p.invuln>0 && amount>=1) return; p.health-=amount; if(amount>=1) { p.invuln=.55; this.damageFlash=1; this.screenImpact(.11); this.emitChips(p.x,p.y-18,COLORS.red,8); this.addFloat(`-${Math.ceil(amount)}`,p.x,p.y-48,COLORS.red); this.audio.play('damage'); } if(p.health<=0){ this.playerDeath(); } }
   damageMonkey(m,amt){ m.hp-=amt; m.hitFlash=.2; this.emitChips(m.x,m.y-20,COLORS.red,5); this.addFloat('ouch',m.x,m.y-34,COLORS.red); if(m.hp<=0){ m.hp=m.maxHp; m.x=this.player.x+20; m.y=this.player.y+20; m.order=null; m.carry=null; m.path=[]; this.message(`${m.name} fled, recovered, and forgot its task.`); } }
   damageBuilding(b,amt){ if(!b.hp || b.hp>900) b.hp=BUILD_RECIPES[b.type]?.hp||90; b.hp-=amt; b.hitFlash=.2; this.emitChips(b.x,b.y-10,COLORS.wood,6); if(b.hp<=0){ const i=this.world.buildings.indexOf(b); if(i>=0) this.world.buildings.splice(i,1); this.message(`${itemName(b.type)} was destroyed!`); } }
-  playerDeath(){ this.player.health=this.player.maxHealth; this.player.hunger=Math.max(35,this.player.hunger); this.player.stamina=this.player.maxStamina; this.player.x=this.player.respawn.x; this.player.y=this.player.respawn.y; this.message('You collapsed and woke up at your bed/spawn.', COLORS.red); }
+  playerDeath(){ this.audio.play('death'); this.player.health=this.player.maxHealth; this.player.hunger=Math.max(35,this.player.hunger); this.player.stamina=this.player.maxStamina; this.player.x=this.player.respawn.x; this.player.y=this.player.respawn.y; this.message('You collapsed and woke up at your bed/spawn.', COLORS.red); }
   spawnMonkey(x,y,tamed=false){ const m={id:nowId(),x,y,tamed,name:tamed?this.nextMonkeyName():'Wild Monkey',hp:60,maxHp:60,walk:0,order:null,carry:null,attackCd:0,actCd:0,target:null,path:[],pathTimer:0,wander:Math.random()*TWO_PI}; this.monkeys.push(m); return m; }
   nextMonkeyName(){ const names=['Momo','Pip','Bongo','Kiki','Nana','Tiko','Bibi','Coco']; return names[this.monkeys.filter(m=>m.tamed).length%names.length]; }
   nearestMonkey(x,y,maxD,pred=null){ let best=null,bd=maxD*maxD; for(const m of this.monkeys){ if(pred && !pred(m)) continue; const d=dist2(x,y,m.x,m.y); if(d<bd){bd=d;best=m;} } return best; }
@@ -480,12 +507,12 @@ export class Game {
     this.world=this.dungeonReturn.world; this.player.x=this.dungeonReturn.x; this.player.y=this.dungeonReturn.y; for(const m of this.monkeys.filter(m=>m.tamed)){m.x=this.player.x+randRange(Math.random,-30,30);m.y=this.player.y+randRange(Math.random,-30,30);} this.dungeonReturn=null; this.message('Returned to the island.');
   }
   tryRepairGalleon(g){
-    const cost={wood:16,fiber:10,iron:4,core:1}; if(hasCost(this.player.inv,cost)){ payCost(this.player.inv,cost); g.repaired=true; this.win=true; this.message('The galleon is repaired. You escaped!'); }
+    const cost={wood:16,fiber:10,iron:4,core:1}; if(hasCost(this.player.inv,cost)){ payCost(this.player.inv,cost); g.repaired=true; this.win=true; this.message('The galleon is repaired. You escaped!'); this.audio.play('win_fanfare'); }
     else this.message(`Repair needs ${formatCost(cost)}.`);
   }
   sailToNewIsland(){
     if(this.world.kind!=='overworld') return;
-    this.island++; this.seed=(this.seed+0x9e3779b9+this.island*1337)&0x7fffffff; this.world=new World(this.seed,'overworld',this.island); this.overworld=this.world; this.player.x=this.world.spawn.x; this.player.y=this.world.spawn.y; this.player.respawn={x:this.player.x,y:this.player.y};
+    this.audio.play('splash'); this.island++; this.seed=(this.seed+0x9e3779b9+this.island*1337)&0x7fffffff; this.world=new World(this.seed,'overworld',this.island); this.overworld=this.world; this.player.x=this.world.spawn.x; this.player.y=this.world.spawn.y; this.player.respawn={x:this.player.x,y:this.player.y};
     for(const m of this.monkeys.filter(m=>m.tamed)){ m.x=this.player.x+randRange(Math.random,-40,40); m.y=this.player.y+randRange(Math.random,-40,40); }
     this.message(`You sailed to Island ${this.island}. New resources and dangers await.`);
   }
@@ -570,7 +597,73 @@ export class Game {
   renderUI(ctx){
     this.uiButtons=[];
     this.drawStats(ctx); this.drawHotbar(ctx); this.drawMinimap(ctx); this.drawMessages(ctx); this.drawQuest(ctx); this.drawMimicPanel(ctx); this.drawActionHint(ctx);
+    if(this.input.isUsingTouch()) this.drawTouchHUD(ctx); else this.input.setTouchButtons([]);
+    this.drawAudioToggle(ctx);
     if(this.craftOpen) this.drawCraftMenu(ctx); if(this.helpOpen) this.drawHelp(ctx); if(this.assetOpen) this.drawAssetBrowser(ctx); if(this.win) this.drawWin(ctx); if(this.gameOver) this.drawGameOver(ctx);
+  }
+  drawAudioToggle(ctx){
+    // Small mute toggle, top-right corner, below minimap.
+    const s=this.uiScale();
+    const r=Math.round(18*s);
+    const x=this.canvas.width-Math.round(28*s)-r, y=Math.round(180*s)+r;
+    ctx.save();
+    ctx.fillStyle='rgba(8,12,20,.7)'; ctx.beginPath(); ctx.arc(x,y,r,0,TWO_PI); ctx.fill();
+    ctx.strokeStyle=this.audio.muted?'rgba(255,120,120,.9)':'rgba(255,245,214,.85)'; ctx.lineWidth=2; ctx.beginPath(); ctx.arc(x,y,r,0,TWO_PI); ctx.stroke();
+    ctx.fillStyle=this.audio.muted?'#ff8080':COLORS.white; ctx.font=`bold ${Math.round(15*s)}px monospace`; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText(this.audio.muted?'X':'♪',x,y+1);
+    ctx.textBaseline='alphabetic';
+    ctx.restore();
+    this.uiButtons.push({x:x-r,y:y-r,w:r*2,h:r*2,cb:()=>{ this.audio.toggleMute(); }});
+  }
+  drawTouchHUD(ctx){
+    // Build action button cluster on the right and feed it to the input layer.
+    const s = this.uiScale();
+    const cw=this.canvas.width, ch=this.canvas.height;
+    const slot = clamp(Math.floor((Math.max(280,cw-240) - 11*6)/12),32,56);
+    const baseY = ch - (slot + 28) - Math.round(110*s);
+    const rB = Math.round(34*s), rL = Math.round(28*s);
+    const rightX = cw - rB - Math.round(20*s);
+    // Big primary action button (use tool / attack)
+    const buttons = [
+      {id:'atk', x:rightX, y:baseY, r:rB, action:'mouse_click', label:'⚔'},
+      {id:'e', x:rightX - rB - rL - 8, y:baseY, r:rL, key:'e', label:'E'},
+      {id:'f', x:rightX, y:baseY - rB - rL - 8, r:rL, key:'f', label:'F'},
+      {id:'b', x:rightX - rB - rL - 8, y:baseY - rB - rL - 8, r:rL, key:'b', label:'B'},
+      {id:'c', x:rightX - 2*(rB + rL + 8) + rB - rL, y:baseY, r:rL, key:'c', label:'C'},
+      {id:'m', x:rightX - 2*(rB + rL + 8) + rB - rL, y:baseY - rB - rL - 8, r:rL, key:'m', label:'M'},
+      {id:'pause', x:rightX, y:baseY + rB + rL + 8, r:rL, key:'escape', label:'≡'},
+    ];
+    this.input.setTouchButtons(buttons);
+    ctx.save();
+    for(const b of buttons){
+      const pressed = this.input.virtualKeys.has(b.key||'') || (b.action==='mouse_click' && this.input.mouse.down);
+      ctx.fillStyle = pressed ? 'rgba(255,216,90,.55)' : 'rgba(8,12,20,.55)';
+      ctx.beginPath(); ctx.arc(b.x,b.y,b.r,0,TWO_PI); ctx.fill();
+      ctx.strokeStyle='rgba(255,245,214,.85)'; ctx.lineWidth=2;
+      ctx.beginPath(); ctx.arc(b.x,b.y,b.r,0,TWO_PI); ctx.stroke();
+      ctx.fillStyle = pressed ? '#1a1208' : '#fff3bd';
+      ctx.font=`bold ${Math.round(b.r*.95)}px monospace`; ctx.textAlign='center'; ctx.textBaseline='middle';
+      ctx.fillText(b.label||'', b.x, b.y+1);
+    }
+    ctx.textBaseline='alphabetic';
+    // Joystick visualization (shown only while active).
+    if(this.input.joystick.active){
+      const j=this.input.joystick;
+      ctx.strokeStyle='rgba(255,245,214,.5)'; ctx.lineWidth=3;
+      ctx.beginPath(); ctx.arc(j.baseX,j.baseY,j.radius,0,TWO_PI); ctx.stroke();
+      ctx.fillStyle='rgba(255,216,90,.65)';
+      ctx.beginPath(); ctx.arc(j.x,j.y,j.radius*.32,0,TWO_PI); ctx.fill();
+      ctx.strokeStyle='rgba(255,255,255,.85)'; ctx.lineWidth=2;
+      ctx.beginPath(); ctx.arc(j.x,j.y,j.radius*.32,0,TWO_PI); ctx.stroke();
+    } else {
+      // Idle hint on the lower-left so users know where to drag.
+      const hx=Math.round(80*s), hy=ch - Math.round(180*s);
+      ctx.globalAlpha=.25; ctx.strokeStyle='rgba(255,245,214,.9)'; ctx.lineWidth=2;
+      ctx.beginPath(); ctx.arc(hx,hy,Math.round(56*s),0,TWO_PI); ctx.stroke();
+      ctx.globalAlpha=1; ctx.fillStyle='rgba(255,245,214,.55)'; ctx.font=`bold ${Math.round(11*s)}px monospace`; ctx.textAlign='center';
+      ctx.fillText('drag to move',hx,hy+Math.round(70*s));
+    }
+    ctx.restore();
   }
   panel(ctx,x,y,w,h,a=.84){
     ctx.save();
@@ -581,16 +674,20 @@ export class Game {
     ctx.restore();
   }
   drawStats(ctx){
-    const infoX=16, infoY=14, infoW=220, infoH=42;
+    const s=this.uiScale();
+    const infoX=12, infoY=10, infoW=Math.round(220*s), infoH=Math.round(42*s);
     this.panel(ctx,infoX,infoY,infoW,infoH,.72);
-    ctx.font='bold 13px monospace'; ctx.textAlign='left'; ctx.fillStyle=COLORS.white;
-    ctx.fillText(`Day ${this.day}  Island ${this.island}`,infoX+12,infoY+17);
+    ctx.font=`bold ${Math.round(13*s)}px monospace`; ctx.textAlign='left'; ctx.fillStyle=COLORS.white;
+    ctx.fillText(`Day ${this.day}  Island ${this.island}`,infoX+12,infoY+Math.round(17*s));
     ctx.fillStyle='rgba(255,245,214,.86)';
-    ctx.fillText(`${this.world.kind==='dungeon'?'VAULT':'OPEN WORLD'}  ${Math.floor(this.time*24).toString().padStart(2,'0')}:00`,infoX+12,infoY+34);
-    const y=this.canvas.height-82;
-    this.drawStatCircle(ctx,46,y,28,this.player.health/this.player.maxHealth,COLORS.red,'heart');
-    this.drawStatCircle(ctx,120,y,24,this.player.hunger/this.player.maxHunger,COLORS.yellow,'hunger');
-    this.drawStatCircle(ctx,this.canvas.width-54,y,28,this.player.stamina/this.player.maxStamina,'#37e052','stamina');
+    ctx.fillText(`${this.world.kind==='dungeon'?'VAULT':'OPEN WORLD'}  ${Math.floor(this.time*24).toString().padStart(2,'0')}:00`,infoX+12,infoY+Math.round(34*s));
+    // Stat circles cluster near the bottom-left and -right; stay above hotbar.
+    const slot = clamp(Math.floor((Math.max(280,this.canvas.width-240) - 11*6)/12),32,56);
+    const yC = this.canvas.height - (slot + 28) - Math.round(46*s);
+    const r1=Math.round(26*s), r2=Math.round(22*s);
+    this.drawStatCircle(ctx,Math.round(40*s)+8,yC,r1,this.player.health/this.player.maxHealth,COLORS.red,'heart');
+    this.drawStatCircle(ctx,Math.round(40*s)+8 + r1+r2+Math.round(20*s),yC,r2,this.player.hunger/this.player.maxHunger,COLORS.yellow,'hunger');
+    this.drawStatCircle(ctx,this.canvas.width-Math.round(50*s),yC,r1,this.player.stamina/this.player.maxStamina,'#37e052','stamina');
   }
   drawStatCircle(ctx,x,y,r,pct,color,icon){
     ctx.save();
@@ -602,21 +699,34 @@ export class Game {
     ctx.restore();
   }
   drawHotbar(ctx){
-    const slot=52, gap=8, count=HOTBAR.length; const w=count*slot+(count-1)*gap; const x0=(this.canvas.width-w)/2, y=this.canvas.height-72;
-    this.panel(ctx,x0-14,y-22,w+28,74,.7);
+    const count=HOTBAR.length;
+    // Compute responsive slot size so 12 slots always fit + the on-screen action cluster doesn't overlap.
+    const cw=this.canvas.width, ch=this.canvas.height;
+    const reservedRight = this.input.isUsingTouch() ? Math.min(260, cw*.28) : 120;
+    const reservedLeft = 120;
+    const maxBar = Math.max(280, cw - reservedLeft - reservedRight);
+    let slot = Math.floor((maxBar - (count-1)*6) / count);
+    slot = clamp(slot, 32, 56);
+    const gap = Math.max(3, Math.round(slot*.12));
+    const w=count*slot+(count-1)*gap; const x0=(cw-w)/2, y=ch- (slot + 28);
+    this.panel(ctx,x0-12,y-18,w+24,slot+30,.72);
+    this.uiButtons = this.uiButtons || [];
     for(let i=0;i<count;i++){
       const x=x0+i*(slot+gap), id=HOTBAR[i];
       ctx.fillStyle=i===this.selectedSlot?'rgba(255,216,90,.22)':'rgba(12,18,26,.78)'; ctx.fillRect(x,y,slot,slot);
       ctx.strokeStyle=i===this.selectedSlot?COLORS.yellow:'rgba(255,255,255,.28)'; ctx.lineWidth=i===this.selectedSlot?3:2; ctx.strokeRect(x+.5,y+.5,slot,slot);
-      this.art.drawIconShape(ctx,id,x+slot/2,y+slot/2,.88);
+      this.art.drawIconShape(ctx,id,x+slot/2,y+slot/2,slot/60);
       let qty=this.player.inv[id]||0; if(BUILD_RECIPES[id]) qty=this.unlocked.build[id]?'B':''; if(ITEM_INFO[id]?.tool && qty>0) qty='';
-      if(qty){ ctx.font='bold 12px monospace'; ctx.textAlign='right'; ctx.strokeStyle='black'; ctx.lineWidth=3; ctx.strokeText(String(qty),x+slot-5,y+slot-6); ctx.fillStyle='white'; ctx.fillText(String(qty),x+slot-5,y+slot-6); }
-      ctx.font='bold 10px monospace'; ctx.textAlign='left'; ctx.fillStyle='rgba(255,255,255,.72)'; ctx.fillText(i===9?'0':String(i+1),x+5,y+12);
+      if(qty){ ctx.font=`bold ${Math.round(slot*.24)}px monospace`; ctx.textAlign='right'; ctx.strokeStyle='black'; ctx.lineWidth=3; ctx.strokeText(String(qty),x+slot-4,y+slot-5); ctx.fillStyle='white'; ctx.fillText(String(qty),x+slot-4,y+slot-5); }
+      ctx.font=`bold ${Math.round(slot*.21)}px monospace`; ctx.textAlign='left'; ctx.fillStyle='rgba(255,255,255,.72)'; ctx.fillText(i===9?'0':String(i+1),x+4,y+Math.round(slot*.24));
+      // Hotbar slots are clickable / tappable — pick slot.
+      this.uiButtons.push({x,y,w:slot,h:slot,cb:()=>{ this.selectedSlot=i; this.audio.play('select'); }});
     }
-    ctx.font='bold 16px monospace'; ctx.textAlign='center'; ctx.fillStyle=COLORS.white; const sel=this.currentHotbarItem(); ctx.fillText(itemName(sel),this.canvas.width/2,y-6);
+    ctx.font=`bold ${Math.round(slot*.32)}px monospace`; ctx.textAlign='center'; ctx.fillStyle=COLORS.white; const sel=this.currentHotbarItem(); ctx.fillText(itemName(sel),cw/2,y-6);
   }
   drawMinimap(ctx){
-    const r=78, x=this.canvas.width-102, y=96; ctx.save(); ctx.beginPath(); ctx.arc(x,y,r,0,TWO_PI); ctx.clip(); ctx.fillStyle='rgba(0,0,0,.5)'; ctx.fillRect(x-r,y-r,r*2,r*2);
+    const s=this.uiScale();
+    const r=Math.round(72*s), x=this.canvas.width-r-Math.round(20*s), y=r+Math.round(20*s); ctx.save(); ctx.beginPath(); ctx.arc(x,y,r,0,TWO_PI); ctx.clip(); ctx.fillStyle='rgba(0,0,0,.5)'; ctx.fillRect(x-r,y-r,r*2,r*2);
     const scale= r*2/this.world.w;
     for(let ty=0;ty<this.world.h;ty+=2) for(let tx=0;tx<this.world.w;tx+=2){ const t=this.world.tile(tx,ty); ctx.fillStyle= t==='water'?COLORS.water:(t==='shallow'?COLORS.shallow:(t==='sand'?COLORS.sand:(t==='swamp'?'#486b3d':(t==='ash'?'#615549':(t==='lava'?'#b64221':COLORS.grass))))); ctx.fillRect(x-r+tx*scale,y-r+ty*scale,Math.ceil(scale*2),Math.ceil(scale*2)); }
     ctx.fillStyle=COLORS.red; for(const e of this.world.enemies) ctx.fillRect(x-r+e.x/TILE*scale-2,y-r+e.y/TILE*scale-2,4,4);
