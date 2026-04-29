@@ -208,7 +208,19 @@ export const GENERATED_ASSETS = {
   "fx_torch_0": "assets/generated/curated/fx/fx_torch_0.png",
   "fx_smoke": "assets/generated/curated/fx/fx_smoke.png",
   "fx_splash": "assets/generated/curated/fx/fx_splash.png",
-  "fx_poison": "assets/generated/curated/fx/fx_poison.png"
+  "fx_poison": "assets/generated/curated/fx/fx_poison.png",
+  "sw_idle_body": "assets/generated/curated/characters/swordsman/idle_body.png",
+  "sw_idle_head": "assets/generated/curated/characters/swordsman/idle_head.png",
+  "sw_idle_sword": "assets/generated/curated/characters/swordsman/idle_sword.png",
+  "sw_idle_swordback": "assets/generated/curated/characters/swordsman/idle_sword_back.png",
+  "sw_walk_body": "assets/generated/curated/characters/swordsman/walk_body.png",
+  "sw_walk_head": "assets/generated/curated/characters/swordsman/walk_head.png",
+  "sw_walk_sword": "assets/generated/curated/characters/swordsman/walk_sword.png",
+  "sw_walk_swordback": "assets/generated/curated/characters/swordsman/walk_sword_back.png",
+  "sw_attack_body": "assets/generated/curated/characters/swordsman/attack_body.png",
+  "sw_attack_head": "assets/generated/curated/characters/swordsman/attack_head.png",
+  "sw_attack_sword": "assets/generated/curated/characters/swordsman/attack_sword.png",
+  "sw_attack_swordback": "assets/generated/curated/characters/swordsman/attack_sword_back.png"
 };
 export const GENERATED_SHEETS = {
   "characters": "assets/generated/sheets/characters.png",
