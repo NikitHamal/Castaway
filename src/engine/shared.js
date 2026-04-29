@@ -240,7 +240,7 @@ export const ICON_ASSET_KEYS = {
   chest:'icon_chest', campfire:'icon_campfire', workbench:'icon_workbench', bed:'icon_bed', wall:'icon_wall', torch:'icon_torch', forge:'icon_workbench', raft:'icon_raft',
   heart:'icon_heart', hunger:'icon_hunger', stamina:'icon_stamina', bag:'icon_bag', build:'icon_build', monkey:'icon_monkey', attack:'icon_attack', interact:'icon_interact', save:'icon_save', quest:'icon_quest'
 };
-export const RESOURCE_ASSET_KEYS = { tree:['prop_palm_0','prop_palm_1','prop_palm_2','prop_palm_3'], rock:['prop_rock_0','prop_rock_1'], iron:['prop_iron_0','prop_iron_1'], bush:['prop_bush_red','prop_bush_purple'] };
+export const RESOURCE_ASSET_KEYS = { tree:['prop_palm_0','prop_palm_1','prop_palm_2','prop_palm_3'], rock:['prop_rock_1'], iron:['prop_iron_1'], bush:['prop_bush_red','prop_bush_purple'] };
 export const BUILDING_ASSET_KEYS = {
   chest:'prop_chest_closed', workbench:'prop_workbench', campfire:'prop_campfire_lit', bed:'prop_bed', wall:'prop_wall', torch:'prop_torch', forge:'prop_forge', raft:'prop_raft_sail',
   vault:'poi_vault_round', galleon:'poi_galleon_hull', cage:'prop_cage', totem:'prop_totem',

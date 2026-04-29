@@ -235,18 +235,18 @@ export class Art {
     }
   }
   drawTile(ctx,type,x,y,tx,ty,time){
-    if (type==='water' || type==='shallow' || type==='lava') { this.drawTilePattern(ctx,type,x,y,tx,ty,time); return; }
+    if (type==='water' || type==='shallow') { this.drawTilePattern(ctx,type,x,y,tx,ty,time); return; }
     const key=TILE_ASSET_KEYS[type];
     if(key && this.drawTileAsset(ctx,key,x,y)) return;
     ctx.drawImage(this.tileCanvases[type] || this.tileCanvases.grass, Math.floor(x), Math.floor(y), TILE, TILE);
   }
   shadow(ctx,x,y,w=34,h=12,a=.32){ ctx.save(); ctx.fillStyle=`rgba(0,0,0,${a})`; ctx.beginPath(); ctx.ellipse(x,y,w,h,0,0,TWO_PI); ctx.fill(); ctx.restore(); }
   outlineRect(ctx,x,y,w,h,c=COLORS.ink){ ctx.strokeStyle=c; ctx.lineWidth=2; ctx.strokeRect(Math.round(x)+.5,Math.round(y)+.5,Math.round(w),Math.round(h)); }
-  drawPlayer(ctx,x,y,dir='down',walk=0,charge=0,tool='hand',facing='right',attackCd=0){
+  drawPlayer(ctx,x,y,dir='down',walk=0,charge=0,tool='hand',facing='right',attackCd=0,z=0){
     // Try swordsman spritesheet first
     if(this.assetsReady && this.sprites['sw_idle_body']){
       const isAttacking = attackCd > 0.02;
-      const isMoving = walk > 0.1;
+      const isMoving = walk > 0;
       let state = 'idle', cols = 12;
       if(isAttacking){ state = 'attack'; cols = 8; }
       else if(isMoving){ state = 'walk'; cols = 6; }
@@ -262,7 +262,7 @@ export class Art {
       const img = this.sprites[`sw_${state}_body`];
       if(!img || !img.width){
         // Fallback if sprites not loaded
-        return this.drawPlayerFallback(ctx, x, y, dir, walk, charge, tool, facing, attackCd);
+        return this.drawPlayerFallback(ctx, x, y, dir, walk, charge, tool, facing, attackCd, z);
       }
       const frameW = img.width / cols;
       const frameH = img.height / 4;
@@ -271,34 +271,34 @@ export class Art {
       const scale = 2.2;
       const drawW = frameW * scale;
       const drawH = frameH * scale;
-      this.shadow(ctx, x, y + 10, 16, 5, .32);
+      this.shadow(ctx, x, y + 10, Math.max(8, 16 - z * 0.1), Math.max(2.5, 5 - z * 0.03), Math.max(0.1, .32 - z * 0.005));
       const layers = hasSword ? ['swordback', 'body', 'head', 'sword'] : ['body', 'head'];
       for(const part of layers){
         const key = `sw_${state}_${part}`;
         const spr = this.sprites[key];
         if(!spr || !spr.width) continue;
-        ctx.drawImage(spr, srcX, srcY, frameW, frameH, Math.round(x - drawW/2), Math.round(y + 10 - drawH * 0.69), drawW, drawH);
+        ctx.drawImage(spr, srcX, srcY, frameW, frameH, Math.round(x - drawW/2), Math.round(y - z + 10 - drawH * 0.69), drawW, drawH);
       }
-      if(!hasSword && attackCd > 0) this.drawToolSwing(ctx,x,y,tool,facing,dir,attackCd);
-      if(charge>0){ ctx.save(); ctx.strokeStyle=`rgba(255,216,90,${.25+charge*.5})`; ctx.lineWidth=2+charge*4; ctx.beginPath(); ctx.arc(x,y-14,18+charge*8,0,TWO_PI); ctx.stroke(); ctx.restore(); }
+      if(!hasSword && attackCd > 0) this.drawToolSwing(ctx,x,y-z,tool,facing,dir,attackCd);
+      if(charge>0){ ctx.save(); ctx.strokeStyle=`rgba(255,216,90,${.25+charge*.5})`; ctx.lineWidth=2+charge*4; ctx.beginPath(); ctx.arc(x,y-z-14,18+charge*8,0,TWO_PI); ctx.stroke(); ctx.restore(); }
       return;
     }
-    return this.drawPlayerFallback(ctx, x, y, dir, walk, charge, tool, facing, attackCd);
+    return this.drawPlayerFallback(ctx, x, y, dir, walk, charge, tool, facing, attackCd, z);
   }
-  drawPlayerFallback(ctx,x,y,dir='down',walk=0,charge=0,tool='hand',facing='right',attackCd=0){
+  drawPlayerFallback(ctx,x,y,dir='down',walk=0,charge=0,tool='hand',facing='right',attackCd=0,z=0){
     if(this.assetsReady){
       const baseDir = dir==='up' ? 'up' : (dir==='down' ? 'down' : 'side');
       const id = baseDir==='up' ? 'player_up' : (baseDir==='side' ? `player_walk_${Math.floor(walk*8)%3}` : 'player_down');
       const flip = baseDir==='side' && facing==='right';
-      this.shadow(ctx,x,y+10,18,6,.32);
-      if(this.drawCharacterAsset(ctx,id,x,y+12,{anchor:'ground',flip,h:PLAYER_DRAW_HEIGHT,cropBottom:2})){
-        if(attackCd>0) this.drawToolSwing(ctx,x,y,tool,facing,baseDir,attackCd);
-        if(charge>0){ ctx.save(); ctx.strokeStyle=`rgba(255,216,90,${.25+charge*.5})`; ctx.lineWidth=2+charge*4; ctx.beginPath(); ctx.arc(x,y-14,18+charge*8,0,TWO_PI); ctx.stroke(); ctx.restore(); }
+      this.shadow(ctx,x,y+10,Math.max(8, 18 - z * 0.1),Math.max(3, 6 - z * 0.03),Math.max(0.1, .32 - z * 0.005));
+      if(this.drawCharacterAsset(ctx,id,x,y-z+12,{anchor:'ground',flip,h:PLAYER_DRAW_HEIGHT,cropBottom:2})){
+        if(attackCd>0) this.drawToolSwing(ctx,x,y-z,tool,facing,baseDir,attackCd);
+        if(charge>0){ ctx.save(); ctx.strokeStyle=`rgba(255,216,90,${.25+charge*.5})`; ctx.lineWidth=2+charge*4; ctx.beginPath(); ctx.arc(x,y-z-14,18+charge*8,0,TWO_PI); ctx.stroke(); ctx.restore(); }
         return;
       }
     }
-    this.shadow(ctx,x,y+8,18,7,.32);
-    ctx.save(); ctx.translate(Math.round(x),Math.round(y)); if(dir==='side' && facing==='left'){ ctx.scale(-1,1); }
+    this.shadow(ctx,x,y+8,Math.max(8, 18 - z * 0.1),Math.max(3, 7 - z * 0.03),Math.max(0.1, .32 - z * 0.005));
+    ctx.save(); ctx.translate(Math.round(x),Math.round(y-z)); if(dir==='side' && facing==='left'){ ctx.scale(-1,1); }
     const bob = Math.sin(walk*8)*1.5;
     const step = Math.sin(walk*8) > 0 ? 1 : -1;
     // legs

@@ -44,7 +44,7 @@ export class Game {
     this._lastFootstep=0; this._lastAmbient=null; this._lastMusicState=false; this._touchButtonHits={};
     this.hitStop=0; this.shake=0; this.damageFlash=0;
     this.seed=(Date.now() ^ 0x513ad) & 0x7fffffff; this.overworld=new World(this.seed,'overworld',1); this.world=this.overworld; this.dungeonReturn=null;
-    this.player={x:this.world.spawn.x,y:this.world.spawn.y,dir:'down',facing:'right',walk:0,health:100,maxHealth:100,hunger:94,maxHunger:100,stamina:100,maxStamina:100,inv:{axe:1,pickaxe:1,hammer:1,berry:4,banana:1,monkey_munch:1},attackCd:0,invuln:0,charge:0,onRaft:false,respawn:{x:this.world.spawn.x,y:this.world.spawn.y}};
+    this.player={x:this.world.spawn.x,y:this.world.spawn.y,z:0,vz:0,dir:'down',facing:'right',walk:0,health:100,maxHealth:100,hunger:94,maxHunger:100,stamina:100,maxStamina:100,inv:{axe:1,pickaxe:1,hammer:1,berry:4,banana:1,monkey_munch:1},attackCd:0,invuln:0,charge:0,onRaft:false,respawn:{x:this.world.spawn.x,y:this.world.spawn.y}};
     this.monkeys=[]; this.selectedSlot=0; this.currentBuild='campfire'; this.craftOpen=false; this.helpOpen=false; this.assetOpen=false; this.assetPage=0; this.paused=false; this.gameOver=false; this.win=false;
     this.unlocked={craft:{monkey_munch:true,cooked_meal:true,pickaxe:true,sword:true}, build:{campfire:true,chest:true,workbench:true,bed:true,wall:true,torch:true,raft:true}};
     this.mimic={active:false,monkey:null,phase:'idle'};
@@ -128,6 +128,7 @@ export class Game {
     if(input.hit('[')){ this.selectedSlot=(this.selectedSlot+HOTBAR.length-1)%HOTBAR.length; this.audio.play('select'); }
     if(input.hit(']')){ this.selectedSlot=(this.selectedSlot+1)%HOTBAR.length; this.audio.play('select'); }
     if(input.hit('tab')){ this.selectedSlot=(this.selectedSlot+1)%HOTBAR.length; this.audio.play('select'); }
+    if(input.mouse.wheel !== 0){ this.selectedSlot=(this.selectedSlot+input.mouse.wheel+HOTBAR.length)%HOTBAR.length; this.audio.play('select'); }
     if(input.hit('b')) this.cycleBuild();
     if(input.hit('f')) this.placeBlueprint();
     if(input.hit('c')){ this.craftOpen=true; this.audio.play('menu_open'); }
@@ -147,7 +148,14 @@ export class Game {
   updatePlayer(dt){
     const p=this.player, input=this.input;
     let dx=0,dy=0; if(input.down('w')||input.down('arrowup')) dy--; if(input.down('s')||input.down('arrowdown')) dy++; if(input.down('a')||input.down('arrowleft')) dx--; if(input.down('d')||input.down('arrowright')) dx++;
-    if(dx||dy){ const len=Math.hypot(dx,dy); dx/=len; dy/=len; if(Math.abs(dx)>.05) p.facing=dx<0?'left':'right'; p.dir=Math.abs(dx)>Math.abs(dy)?'side':(dy<0?'up':'down'); p.walk += dt*(p.onRaft?4:7); const sprint=input.down('shift') && p.stamina>5 && p.hunger>0; let speed=(p.onRaft?130:118)*(sprint?1.42:1); if(sprint) p.stamina=Math.max(0,p.stamina-18*dt); this.moveEntity(p,dx*speed*dt,dy*speed*dt,{onRaft:p.onRaft}); const tt=this.world.tile(Math.floor(p.x/TILE),Math.floor(p.y/TILE)); const ff=tt==='sand'?420:tt==='shallow'?620:tt==='swamp'?260:340; this.audio.play('footstep',{freq:ff, volume: sprint?1:.7}); }
+    if(dx||dy){ const len=Math.hypot(dx,dy); dx/=len; dy/=len; if(Math.abs(dx)>.05) p.facing=dx<0?'left':'right'; p.dir=Math.abs(dx)>Math.abs(dy)?'side':(dy<0?'up':'down'); const sprint=input.down('shift') && p.stamina>5 && p.hunger>0; p.walk += dt*(sprint?1.5:1); let speed=(p.onRaft?130:118)*(sprint?1.42:1); if(sprint) p.stamina=Math.max(0,p.stamina-18*dt); this.moveEntity(p,dx*speed*dt,dy*speed*dt,{onRaft:p.onRaft}); const tt=this.world.tile(Math.floor(p.x/TILE),Math.floor(p.y/TILE)); const ff=tt==='sand'?420:tt==='shallow'?620:tt==='swamp'?260:340; if(p.z===0) this.audio.play('footstep',{freq:ff, volume: sprint?1:.7}); } else p.walk = 0;
+    
+    p.vz -= 900 * dt; p.z += p.vz * dt;
+    if(p.z <= 0) {
+      p.z = 0; p.vz = 0;
+      if(input.down('space') && !p.onRaft) { p.vz = 220; this.audio.play('footstep',{freq: 200, volume: 1}); }
+    }
+    
     p.attackCd=Math.max(0,p.attackCd-dt); p.invuln=Math.max(0,p.invuln-dt);
     p.hunger=Math.max(0,p.hunger-dt*(p.onRaft ? .68 : .42));
     if(p.hunger<=0) this.damagePlayer(4*dt); else p.stamina=clamp(p.stamina+30*dt,0,p.maxStamina);
@@ -201,7 +209,44 @@ export class Game {
     return d;
   }
   screenImpact(power=.12){ this.hitStop=Math.max(this.hitStop,Math.min(.16,power)); this.shake=Math.max(this.shake,Math.min(.35,power*1.8)); }
-  updateItems(dt){ for(const it of this.world.items){ it.t+=dt; it.x += it.vx*dt; it.y += it.vy*dt; it.vx*=Math.pow(.05,dt); it.vy*=Math.pow(.05,dt); } }
+  updateItems(dt){ 
+    const p = this.player;
+    let picked = {};
+    let pickedAnything = false;
+
+    for(const it of [...this.world.items]){ 
+      it.t+=dt; 
+
+      const d = distance(p.x, p.y, it.x, it.y);
+      if (d < 55) {
+        const dx = p.x - it.x;
+        const dy = p.y - 12 - it.y;
+        const len = Math.max(1, Math.hypot(dx, dy));
+        it.vx += (dx/len) * 600 * dt;
+        it.vy += (dy/len) * 600 * dt;
+      }
+
+      it.x += it.vx*dt; 
+      it.y += it.vy*dt; 
+      it.vx*=Math.pow(.05,dt); 
+      it.vy*=Math.pow(.05,dt); 
+
+      if (distance(p.x, p.y, it.x, it.y) < 18) {
+        addToBag(p.inv, it.type, it.qty);
+        this.world.removeItem(it.id);
+        this.discoverFromItem(it.type);
+        picked[it.type] = (picked[it.type]||0) + it.qty;
+        pickedAnything = true;
+      }
+    }
+
+    if (pickedAnything) {
+      const parts = Object.entries(picked).map(([t,q]) => `${q}× ${itemName(t)}`);
+      this.message(`Picked up ${parts.join(', ')}.`);
+      this.audio.play('pickup');
+      this.recordAction({kind:'pickup'});
+    }
+  }
   updateParticles(dt){
     for(const p of this.particles){ p.t-=dt; p.x+=p.vx*dt; p.y+=p.vy*dt; p.vy+=90*dt; }
     this.particles=this.particles.filter(p=>p.t>0);
@@ -219,10 +264,6 @@ export class Game {
     // Select a monkey in mimic mode first.
     const nearMonkey=this.nearestMonkey(p.x,p.y,52,m=>m.tamed);
     if(this.mimic.active && nearMonkey){ this.mimic.monkey=nearMonkey; this.mimic.phase='record'; this.message(`${nearMonkey.name} is watching. Do one action: chop, mine, pick up, deposit, build, craft or attack.`); return; }
-    // Pick up items.
-    let picked=[];
-    for(const it of [...w.items]) if(distance(p.x,p.y,it.x,it.y)<42){ addToBag(p.inv,it.type,it.qty); picked.push(`${it.qty}× ${itemName(it.type)}`); w.removeItem(it.id); this.discoverFromItem(it.type); }
-    if(picked.length){ this.message(`Picked up ${picked.join(', ')}.`); this.audio.play('pickup'); this.recordAction({kind:'pickup'}); return; }
     // Tame monkey from cage or wild.
     const cage=w.nearestBuilding(p.x,p.y,b=>b.type==='cage'&&b.cagedMonkey,58);
     if(cage){ if((p.inv.monkey_munch||0)>0){ addToBag(p.inv,'monkey_munch',-1); cage.cagedMonkey=false; const m=this.spawnMonkey(cage.x,cage.y-10,true); this.message(`${m.name} joined your crew. Press M to teach it.`); this.audio.play('tame'); this.audio.play('monkey_chitter'); this.recordAction({kind:'tame'}); } else this.message('A monkey rattles the cage. It wants Monkey Munch.'); return; }
@@ -612,7 +653,7 @@ export class Game {
     for(const it of w.items) objects.push({y:it.y,draw:()=>{it.sx=it.x-cam.x;it.sy=it.y-cam.y;this.art.drawItem(ctx,it);}});
     for(const e of w.enemies) objects.push({y:e.y,draw:()=>{const sx=e.x-cam.x,sy=e.y-cam.y;this.art.drawEnemy(ctx,sx,sy,e.walk,e.type==='boss',e); if(e.hitFlash>0){ctx.save();ctx.globalAlpha=clamp(e.hitFlash/.22,0,.75);ctx.fillStyle='rgba(255,255,255,.55)';ctx.beginPath();ctx.ellipse(sx,sy-22,e.type==='boss'?30:18,e.type==='boss'?24:16,0,0,TWO_PI);ctx.fill();ctx.restore();} this.art.drawHealthBar(ctx,sx,sy-(e.type==='boss'?68:45),e.type==='boss'?56:34,e.hp/e.maxHp,e.type==='boss'?COLORS.purple:COLORS.red);}});
     for(const m of this.monkeys) objects.push({y:m.y,draw:()=>{const sx=m.x-cam.x,sy=m.y-cam.y;this.art.drawMonkey(ctx,sx,sy,m.walk,m.tamed?m.order:null,this.mimic.monkey===m,m); if(m.hitFlash>0){ctx.save();ctx.globalAlpha=clamp(m.hitFlash/.2,0,.65);ctx.fillStyle='rgba(255,255,255,.45)';ctx.beginPath();ctx.ellipse(sx,sy-17,16,14,0,0,TWO_PI);ctx.fill();ctx.restore();} if(m.carry){this.art.drawIconShape(ctx,m.carry.type,sx+15,sy-40,.55);}}});
-    objects.push({y:this.player.y,draw:()=>this.art.drawPlayer(ctx,this.player.x-cam.x,this.player.y-cam.y,this.player.dir,this.player.walk,this.player.charge,this.currentHotbarItem(),this.player.facing,this.player.attackCd)});
+    objects.push({y:this.player.y,draw:()=>this.art.drawPlayer(ctx,this.player.x-cam.x,this.player.y-cam.y,this.player.dir,this.player.walk,this.player.charge,this.currentHotbarItem(),this.player.facing,this.player.attackCd,this.player.z)});
     objects.sort((a,b)=>a.y-b.y); for(const o of objects) o.draw();
     for(const p of this.particles){ ctx.fillStyle=p.color; ctx.globalAlpha=clamp(p.t/.7,0,1); ctx.fillRect(p.x-cam.x,p.y-cam.y,p.size,p.size); ctx.globalAlpha=1; }
     for(const f of this.floatText){ ctx.font='bold 16px monospace'; ctx.textAlign='center'; ctx.globalAlpha=clamp(f.t,0,1); ctx.strokeStyle='black'; ctx.lineWidth=4; ctx.strokeText(f.text,f.x-cam.x,f.y-cam.y); ctx.fillStyle=f.color; ctx.fillText(f.text,f.x-cam.x,f.y-cam.y); ctx.globalAlpha=1; }
@@ -873,6 +914,8 @@ export class Game {
     if(r) text=r.type==='tree'?'Palm Tree':(r.type==='rock'?'Rock':r.type==='iron'?'Iron Rock':'Berry Bush'); else if(b) text=itemName(b.type); else if(bp) text=`${BUILD_RECIPES[bp.type].name} blueprint`; else if(e) text=e.type==='boss'?'Vault Guardian':'Goblin Raider';
     if(text){ 
       const s = this.uiScale();
+      ctx.textAlign='left';
+      ctx.textBaseline='alphabetic';
       ctx.font=`bold ${Math.round(13*s)}px monospace`; 
       const tw=ctx.measureText(text).width+Math.round(16*s); 
       ctx.fillStyle='rgba(0,0,0,.7)'; 

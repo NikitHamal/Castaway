@@ -9,7 +9,7 @@ export class Input {
     this.virtualKeys = new Set();
     this.virtualPressed = new Set();
     this.virtualReleased = new Set();
-    this.mouse = {x:0, y:0, down:false, clicked:false, rightClicked:false, worldX:0, worldY:0};
+    this.mouse = {x:0, y:0, down:false, clicked:false, rightClicked:false, worldX:0, worldY:0, wheel:0};
     // Touch state and virtual control regions:
     this.touchActive = false;
     this.usingTouch = false;
@@ -36,6 +36,10 @@ export class Input {
     });
     window.addEventListener('mouseup', e => { if (e.button === 0) this.mouse.down = false; });
     canvas.addEventListener('contextmenu', e => e.preventDefault());
+    canvas.addEventListener('wheel', e => {
+      e.preventDefault();
+      this.mouse.wheel += Math.sign(e.deltaY);
+    }, { passive: false });
 
     // Touch events
     const touchOpts = { passive:false };
@@ -167,6 +171,7 @@ export class Input {
     this.virtualReleased.clear();
     this.mouse.clicked = false;
     this.mouse.rightClicked = false;
+    this.mouse.wheel = 0;
     if (this.virtualMouseClick){ this.mouse.clicked = true; this.virtualMouseClick = false; }
     if (this.virtualMouseRight){ this.mouse.rightClicked = true; this.virtualMouseRight = false; }
   }

@@ -306,16 +306,43 @@ export class AudioEngine {
     if (this.ambientType === kind) return;
     if (!this.ensureContext()) return;
     if (this.ambientNode){ try{ this.ambientNode.stop(); } catch(_e){} this.ambientNode = null; }
+    if (this.ambientLFOs) { this.ambientLFOs.forEach(lfo => { try { lfo.stop(); } catch(_e){} }); this.ambientLFOs = []; }
     this.ambientType = kind;
     if (this.muted) return;
     const ctx = this.ctx;
     const src = ctx.createBufferSource(); src.buffer = this.noiseBuffer; src.loop = true;
     const filt = ctx.createBiquadFilter();
-    if (kind === 'overworld'){ filt.type='lowpass'; filt.frequency.value = 1200; this.ambientGain.gain.value = 0.18; }
-    else if (kind === 'night'){ filt.type='lowpass'; filt.frequency.value = 600; this.ambientGain.gain.value = 0.22; }
-    else if (kind === 'dungeon'){ filt.type='lowpass'; filt.frequency.value = 380; this.ambientGain.gain.value = 0.24; }
-    else { filt.type='lowpass'; filt.frequency.value = 1000; this.ambientGain.gain.value = 0.16; }
-    src.connect(filt).connect(this.ambientGain);
+    const localGain = ctx.createGain();
+
+    if (kind === 'overworld'){ 
+      filt.type='lowpass'; filt.frequency.value = 400; 
+      localGain.gain.value = 0.08; 
+      
+      // Modulate filter frequency to simulate waves
+      const lfoFreq = ctx.createOscillator();
+      lfoFreq.type = 'sine';
+      lfoFreq.frequency.value = 0.12;
+      const lfoFreqGain = ctx.createGain();
+      lfoFreqGain.gain.value = 300; 
+      lfoFreq.connect(lfoFreqGain).connect(filt.frequency);
+      lfoFreq.start();
+      
+      // Modulate volume slightly
+      const lfoVol = ctx.createOscillator();
+      lfoVol.type = 'sine';
+      lfoVol.frequency.value = 0.12;
+      const lfoVolGain = ctx.createGain();
+      lfoVolGain.gain.value = 0.06;
+      lfoVol.connect(lfoVolGain).connect(localGain.gain);
+      lfoVol.start();
+
+      this.ambientLFOs = [lfoFreq, lfoVol];
+    }
+    else if (kind === 'night'){ filt.type='lowpass'; filt.frequency.value = 600; localGain.gain.value = 0.12; }
+    else if (kind === 'dungeon'){ filt.type='lowpass'; filt.frequency.value = 380; localGain.gain.value = 0.14; }
+    else { filt.type='lowpass'; filt.frequency.value = 1000; localGain.gain.value = 0.10; }
+    
+    src.connect(filt).connect(localGain).connect(this.ambientGain);
     src.start();
     this.ambientNode = src;
   }
