@@ -28,7 +28,7 @@ export class AudioEngine {
     this.musicNode = null;
     this.musicTimer = 0;
     this.musicBeat = 0;
-    this.musicEnabled = true;
+    this.musicEnabled = false; // BGM disabled by default
     this.ambientNode = null;
     this.ambientType = null;
     this.ready = false;

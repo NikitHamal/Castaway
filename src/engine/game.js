@@ -73,7 +73,7 @@ export class Game {
   // Audio side-channel: start music + match ambient layer to current biome/time.
   updateAudio(){
     if(!this.audio || !this.audio.unlocked) return;
-    if(!this._lastMusicState){ this.audio.startMusic(); this._lastMusicState=true; }
+    // BGM disabled - uncomment to enable: if(!this._lastMusicState){ this.audio.startMusic(); this._lastMusicState=true; }
     let ambient='overworld';
     if(this.world.kind==='dungeon') ambient='dungeon';
     else if(this.nightAmount()>.45) ambient='night';
