@@ -1,0 +1,130 @@
+{
+  "summary": {
+    "tiles_modified": 19,
+    "tile_pixels_changed": 6601,
+    "targeted_props_modified": 5,
+    "prop_pixels_changed": 288
+  },
+  "changed": [
+    {
+      "kind": "tile",
+      "file": "tile_swamp_water.png",
+      "pixels_changed": 348
+    },
+    {
+      "kind": "tile",
+      "file": "tile_swamp.png",
+      "pixels_changed": 348
+    },
+    {
+      "kind": "tile",
+      "file": "tile_shallow.png",
+      "pixels_changed": 348
+    },
+    {
+      "kind": "tile",
+      "file": "tile_sand_detail.png",
+      "pixels_changed": 348
+    },
+    {
+      "kind": "tile",
+      "file": "tile_sand.png",
+      "pixels_changed": 348
+    },
+    {
+      "kind": "tile",
+      "file": "tile_poison.png",
+      "pixels_changed": 348
+    },
+    {
+      "kind": "tile",
+      "file": "tile_path.png",
+      "pixels_changed": 348
+    },
+    {
+      "kind": "tile",
+      "file": "tile_lava.png",
+      "pixels_changed": 348
+    },
+    {
+      "kind": "tile",
+      "file": "tile_grass2.png",
+      "pixels_changed": 348
+    },
+    {
+      "kind": "tile",
+      "file": "tile_grass.png",
+      "pixels_changed": 348
+    },
+    {
+      "kind": "tile",
+      "file": "tile_floor.png",
+      "pixels_changed": 348
+    },
+    {
+      "kind": "tile",
+      "file": "tile_cliff.png",
+      "pixels_changed": 348
+    },
+    {
+      "kind": "tile",
+      "file": "tile_ash.png",
+      "pixels_changed": 348
+    },
+    {
+      "kind": "tile",
+      "file": "tile_walltile.png",
+      "pixels_changed": 347
+    },
+    {
+      "kind": "tile",
+      "file": "tile_dirt.png",
+      "pixels_changed": 347
+    },
+    {
+      "kind": "tile",
+      "file": "tile_wood.png",
+      "pixels_changed": 346
+    },
+    {
+      "kind": "tile",
+      "file": "tile_water.png",
+      "pixels_changed": 346
+    },
+    {
+      "kind": "tile",
+      "file": "tile_stone.png",
+      "pixels_changed": 346
+    },
+    {
+      "kind": "tile",
+      "file": "tile_shore.png",
+      "pixels_changed": 345
+    },
+    {
+      "kind": "prop",
+      "file": "prop_palm_1.png",
+      "pixels_changed": 77
+    },
+    {
+      "kind": "prop",
+      "file": "prop_palm_3.png",
+      "pixels_changed": 68
+    },
+    {
+      "kind": "prop",
+      "file": "prop_palm_0.png",
+      "pixels_changed": 59
+    },
+    {
+      "kind": "prop",
+      "file": "prop_palm_2.png",
+      "pixels_changed": 53
+    },
+    {
+      "kind": "prop",
+      "file": "prop_banana_plant.png",
+      "pixels_changed": 31
+    }
+  ]
+}
