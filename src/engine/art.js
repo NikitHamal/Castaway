@@ -55,8 +55,21 @@ export class Art {
       const px = data.data;
       const isTile = key.startsWith(TILE_KEY_PREFIX);
       if (isTile){
-        // Force fully opaque, also clamp any near-white halo at edges to nearest non-white sample.
-        for (let i=0;i<px.length;i+=4){ px[i+3] = 255; }
+        // Force fully opaque, also clamp edge halos by copying inner pixels
+        for (let y=0;y<h;y++){
+          for (let x=0;x<w;x++){
+            const idx = ((y*w)+x)*4;
+            px[idx+3] = 255;
+            if (x===0 || x===w-1 || y===0 || y===h-1) {
+              const nx = Math.max(1, Math.min(w-2, x));
+              const ny = Math.max(1, Math.min(h-2, y));
+              const nidx = ((ny*w)+nx)*4;
+              px[idx] = px[nidx];
+              px[idx+1] = px[nidx+1];
+              px[idx+2] = px[nidx+2];
+            }
+          }
+        }
       } else {
         // First pass: alpha threshold. Pixels with alpha below cutoff become fully transparent.
         // Pixels above cutoff get fully opaque alpha to remove fringing.
@@ -168,7 +181,7 @@ export class Art {
     }
   }
   drawTilePattern(ctx,type,x,y,tx,ty,time){
-    const fill = color => { ctx.fillStyle=color; ctx.fillRect(x,y,TILE,TILE); };
+    const fill = color => { ctx.fillStyle=color; ctx.fillRect(Math.floor(x),Math.floor(y),TILE,TILE); };
     if (type === 'grass' || type === 'grass2') {
       fill(type==='grass' ? COLORS.grass : '#559f45');
       for (let i=0;i<28;i++){
@@ -225,7 +238,7 @@ export class Art {
     if (type==='water' || type==='shallow' || type==='lava') { this.drawTilePattern(ctx,type,x,y,tx,ty,time); return; }
     const key=TILE_ASSET_KEYS[type];
     if(key && this.drawTileAsset(ctx,key,x,y)) return;
-    ctx.drawImage(this.tileCanvases[type] || this.tileCanvases.grass, Math.round(x), Math.round(y), TILE, TILE);
+    ctx.drawImage(this.tileCanvases[type] || this.tileCanvases.grass, Math.floor(x), Math.floor(y), TILE, TILE);
   }
   shadow(ctx,x,y,w=34,h=12,a=.32){ ctx.save(); ctx.fillStyle=`rgba(0,0,0,${a})`; ctx.beginPath(); ctx.ellipse(x,y,w,h,0,0,TWO_PI); ctx.fill(); ctx.restore(); }
   outlineRect(ctx,x,y,w,h,c=COLORS.ink){ ctx.strokeStyle=c; ctx.lineWidth=2; ctx.strokeRect(Math.round(x)+.5,Math.round(y)+.5,Math.round(w),Math.round(h)); }
