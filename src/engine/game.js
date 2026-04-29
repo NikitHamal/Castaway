@@ -8,6 +8,7 @@ import {
   SAVE_VERSION,
   ATTACK_COOLDOWN,
   TWO_PI,
+  RENDER_SCALE_BASE,
   SHEET_ORDER,
   SHEET_TITLES,
   COLORS,
@@ -38,6 +39,7 @@ export class Game {
   constructor(canvas){
     this.canvas=canvas; this.ctx=canvas.getContext('2d'); this.ctx.imageSmoothingEnabled=false;
     this.input=new Input(canvas); this.art=new Art(); this.audio=new AudioEngine();
+    this.renderScale=RENDER_SCALE_BASE;
     this.camera={x:0,y:0}; this.messages=[]; this.particles=[]; this.floatText=[]; this.uiButtons=[];
     this._lastFootstep=0; this._lastAmbient=null; this._lastMusicState=false; this._touchButtonHits={};
     this.hitStop=0; this.shake=0; this.damageFlash=0;
@@ -56,11 +58,16 @@ export class Game {
     this.canvas.width = Math.floor(window.innerWidth * dpr);
     this.canvas.height = Math.floor(window.innerHeight * dpr);
     this.ctx.imageSmoothingEnabled=false;
+    const minDim = Math.min(this.canvas.width, this.canvas.height);
+    const isMobile = this.input.isMobile || (typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches);
+    this.renderScale = isMobile
+      ? Math.max(1.25, Math.min(2.0, minDim / 360))
+      : Math.max(1.0, Math.min(1.6, minDim / 480));
   }
   // Responsive UI scaling — clamps content to the smaller dim so phones still get readable HUD.
   uiScale(){
     const min = Math.min(this.canvas.width, this.canvas.height);
-    return clamp(min/720, 0.62, 1.4);
+    return clamp(min/720, 0.5, 1.2);
   }
   start(){
     this.resize();
@@ -83,7 +90,8 @@ export class Game {
   addFloat(text,x,y,color=COLORS.white){ this.floatText.push({text,x,y,t:1.2,color}); }
   update(dt){
     const input=this.input;
-    input.mouse.worldX = input.mouse.x + this.camera.x; input.mouse.worldY = input.mouse.y + this.camera.y;
+    const sc=this.renderScale;
+    input.mouse.worldX = input.mouse.x / sc + this.camera.x; input.mouse.worldY = input.mouse.y / sc + this.camera.y;
     this.updateAudio();
     if(input.hit('f1')) this.helpOpen=!this.helpOpen;
     if(input.hit('escape')) { if(this.craftOpen){this.craftOpen=false; this.audio.play('menu_close');} else {this.helpOpen=!this.helpOpen; this.audio.play(this.helpOpen?'menu_open':'menu_close');} }
@@ -122,8 +130,9 @@ export class Game {
     this.time += dt/420; if(this.time>=1){ this.time-=1; this.day++; this.message(`Day ${this.day}. The island shifts with the tide.`); }
     this.raidTimer -= dt; if(this.raidTimer<=0){ this.startRaid(); this.raidTimer = 300 + this.day*45; }
     this.updatePlayer(dt); this.updateItems(dt); this.updateParticles(dt); this.updateMonkeys(dt); this.updateEnemies(dt); this.updateBlueprints(); this.updateQuest();
-    this.camera.x = clamp(this.player.x - this.canvas.width/2, 0, this.world.w*TILE - this.canvas.width);
-    this.camera.y = clamp(this.player.y - this.canvas.height/2, 0, this.world.h*TILE - this.canvas.height);
+    const vw=this.canvas.width/this.renderScale, vh=this.canvas.height/this.renderScale;
+    this.camera.x = clamp(this.player.x - vw/2, 0, this.world.w*TILE - vw);
+    this.camera.y = clamp(this.player.y - vh/2, 0, this.world.h*TILE - vh);
   }
   updatePlayer(dt){
     const p=this.player, input=this.input;
@@ -550,12 +559,14 @@ export class Game {
     this.message('New island generated.');
   }
   render(){
-    const ctx=this.ctx; ctx.clearRect(0,0,this.canvas.width,this.canvas.height); ctx.imageSmoothingEnabled=false;
-    this.renderWorld(ctx); this.renderLighting(ctx); this.renderUI(ctx);
+    const ctx=this.ctx; const sc=this.renderScale;
+    ctx.clearRect(0,0,this.canvas.width,this.canvas.height); ctx.imageSmoothingEnabled=false;
+    ctx.save(); ctx.scale(sc, sc); this.renderWorld(ctx); this.renderLighting(ctx, sc); ctx.restore();
+    this.renderUI(ctx);
     if(this.damageFlash>0){ ctx.save(); ctx.fillStyle=`rgba(232,59,75,${this.damageFlash*.16})`; ctx.fillRect(0,0,this.canvas.width,this.canvas.height); ctx.restore(); }
   }
   renderWorld(ctx){
-    const w=this.world, shakeAmt=this.shake>0?this.shake*28:0, cam={x:Math.round(this.camera.x + (Math.random()-.5)*shakeAmt), y:Math.round(this.camera.y + (Math.random()-.5)*shakeAmt)}; const startX=Math.floor(cam.x/TILE)-1, endX=Math.ceil((cam.x+this.canvas.width)/TILE)+1; const startY=Math.floor(cam.y/TILE)-1, endY=Math.ceil((cam.y+this.canvas.height)/TILE)+1;
+    const w=this.world, shakeAmt=this.shake>0?this.shake*28:0, cam={x:Math.round(this.camera.x + (Math.random()-.5)*shakeAmt), y:Math.round(this.camera.y + (Math.random()-.5)*shakeAmt)}; const startX=Math.floor(cam.x/TILE)-1, endX=Math.ceil((cam.x+this.canvas.width/this.renderScale)/TILE)+1; const startY=Math.floor(cam.y/TILE)-1, endY=Math.ceil((cam.y+this.canvas.height/this.renderScale)/TILE)+1;
     for(let y=startY;y<=endY;y++) for(let x=startX;x<=endX;x++){ if(!w.inBounds(x,y)) continue; this.art.drawTile(ctx,w.tile(x,y),x*TILE-cam.x,y*TILE-cam.y,x,y,this.time*100); }
     // sort objects by ground Y
     const objects=[];
@@ -571,7 +582,7 @@ export class Game {
     for(const f of this.floatText){ ctx.font='bold 16px monospace'; ctx.textAlign='center'; ctx.globalAlpha=clamp(f.t,0,1); ctx.strokeStyle='black'; ctx.lineWidth=4; ctx.strokeText(f.text,f.x-cam.x,f.y-cam.y); ctx.fillStyle=f.color; ctx.fillText(f.text,f.x-cam.x,f.y-cam.y); ctx.globalAlpha=1; }
     this.renderCursorTooltip(ctx);
   }
-  renderLighting(ctx){
+  renderLighting(ctx, sc){
     const night = this.nightAmount();
     const camX=Math.round(this.camera.x), camY=Math.round(this.camera.y);
     const lights=[];
@@ -579,7 +590,7 @@ export class Game {
     if(night>.03){
       ctx.save();
       ctx.fillStyle=`rgba(8,12,28,${night*.34})`;
-      ctx.fillRect(0,0,this.canvas.width,this.canvas.height);
+      ctx.fillRect(0,0,this.canvas.width/sc,this.canvas.height/sc);
       ctx.restore();
     }
     ctx.save();

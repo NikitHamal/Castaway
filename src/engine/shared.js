@@ -11,6 +11,7 @@ export const SAVE_KEY = 'castaway_mimics_save_v3';
 export const SAVE_VERSION = 3;
 export const ATTACK_COOLDOWN = 0.28;
 export const TWO_PI = Math.PI * 2;
+export const RENDER_SCALE_BASE = 1.35;
 
 export const GENERATED_ASSETS = {
   "player_down": "assets/generated/curated/characters/player_down.png",

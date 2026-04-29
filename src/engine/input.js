@@ -13,6 +13,7 @@ export class Input {
     // Touch state and virtual control regions:
     this.touchActive = false;
     this.usingTouch = false;
+    this.isMobile = false;
     this.activeTouches = new Map();
     this.joystick = { active:false, baseX:0, baseY:0, x:0, y:0, dx:0, dy:0, id:null, radius:80 };
     this.aim = { active:false, x:0, y:0, id:null }; // right-side aim/look pad
@@ -44,7 +45,7 @@ export class Input {
     canvas.addEventListener('touchcancel', e => this.handleTouchEnd(e), touchOpts);
     // Detect coarse pointer (mobile-ish) without requiring a touch yet.
     if (typeof window.matchMedia === 'function'){
-      try { if (window.matchMedia('(pointer: coarse)').matches) this.touchActive = true; } catch(_e){}
+      try { if (window.matchMedia('(pointer: coarse)').matches) this.isMobile = true; } catch(_e){}
     }
   }
   norm(k){ if (k === ' ') return 'space'; return String(k).toLowerCase(); }
@@ -71,7 +72,7 @@ export class Input {
   }
   handleTouchStart(e){
     e.preventDefault();
-    this.touchActive = true; this.usingTouch = true;
+    this.touchActive = true; this.usingTouch = true; this.isMobile = true;
     for (const t of e.changedTouches){
       const pos = this.canvasPosFromTouch(t);
       const btn = this.hitButton(pos.x, pos.y);
