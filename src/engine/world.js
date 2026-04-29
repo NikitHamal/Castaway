@@ -170,7 +170,7 @@ export class World {
   isWalkableTile(tx,ty,opts={}){
     const t=this.tile(tx,ty);
     if(t==='walltile') return false;
-    if(t==='water') return !!opts.onRaft;
+    if(t==='water') return !!opts.onRaft || !!opts.allowWater;
     if(t==='shallow') return true;
     if(t==='lava') return false;
     return true;

@@ -14,6 +14,9 @@ html, body {
   background: #0b1220;
   image-rendering: pixelated;
   cursor: crosshair;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
 }
 .boot {
   position: fixed;

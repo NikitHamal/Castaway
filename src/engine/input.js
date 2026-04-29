@@ -19,12 +19,34 @@ export class Input {
     });
     window.addEventListener('mouseup', e => { if (e.button === 0) this.mouse.down = false; });
     canvas.addEventListener('contextmenu', e => e.preventDefault());
+
+    // Touch support
+    canvas.addEventListener('touchstart', e => {
+      e.preventDefault();
+      this.updateTouch(e);
+      this.mouse.down = true;
+      this.mouse.clicked = true;
+    }, {passive: false});
+    canvas.addEventListener('touchmove', e => {
+      e.preventDefault();
+      this.updateTouch(e);
+    }, {passive: false});
+    window.addEventListener('touchend', e => {
+      this.mouse.down = false;
+    });
   }
   norm(k){ if (k === ' ') return 'space'; return String(k).toLowerCase(); }
   updateMouse(e){
     const r = this.canvas.getBoundingClientRect();
     this.mouse.x = (e.clientX - r.left) * (this.canvas.width / r.width);
     this.mouse.y = (e.clientY - r.top) * (this.canvas.height / r.height);
+  }
+  updateTouch(e){
+    if (!e.touches || !e.touches.length) return;
+    const r = this.canvas.getBoundingClientRect();
+    const touch = e.touches[0];
+    this.mouse.x = (touch.clientX - r.left) * (this.canvas.width / r.width);
+    this.mouse.y = (touch.clientY - r.top) * (this.canvas.height / r.height);
   }
   down(k){ return this.keys.has(k.toLowerCase()); }
   hit(k){ return this.pressed.has(k.toLowerCase()); }

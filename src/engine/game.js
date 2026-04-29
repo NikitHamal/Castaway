@@ -18,6 +18,7 @@ import {
   clamp,
   lerp,
   dist2,
+  playSound,
   distance,
   randRange,
   nowId,
@@ -55,6 +56,17 @@ export class Game {
     this.canvas.height = Math.floor(window.innerHeight * dpr);
     this.ctx.imageSmoothingEnabled=false;
   }
+
+  playBGM(){
+    if(this.bgmPlaying) return;
+    this.bgmPlaying = true;
+    const playNext = () => {
+      if(!this.bgmPlaying) return;
+      playSound("bgm", 0.1);
+      setTimeout(playNext, 12000); // loop a simple ambient synth
+    };
+    playNext();
+  }
   start(){
     this.resize(); window.addEventListener('resize',()=>this.resize());
     let last=performance.now();
@@ -66,6 +78,16 @@ export class Game {
   update(dt){
     const input=this.input;
     input.mouse.worldX = input.mouse.x + this.camera.x; input.mouse.worldY = input.mouse.y + this.camera.y;
+
+    // Tap to move / interact for mobile
+    if(!this.bgmPlaying) this.playBGM();
+    if(input.mouse.clicked && !this.craftOpen && !this.helpOpen && !this.assetOpen && !this.win && !this.gameOver){
+      // Don't override tap if tapping the hotbar area (bottom 80px)
+      if (input.mouse.y < this.canvas.height - 80) {
+        this.player.target = {x: input.mouse.worldX, y: input.mouse.worldY};
+      }
+    }
+
     if(input.hit('f1')) this.helpOpen=!this.helpOpen;
     if(input.hit('escape')) { if(this.craftOpen) this.craftOpen=false; else this.helpOpen=!this.helpOpen; }
     if(input.hit('l')) this.loadGame(); if(input.hit('n')) this.newGame();
@@ -80,7 +102,7 @@ export class Game {
   }
   handleHotkeys(){
     const input=this.input;
-    if(input.hit('v')) { this.assetOpen=!this.assetOpen; this.message(this.assetOpen?'Asset viewer opened. [ / ] pages, V closes.':'Asset viewer closed.'); }
+    if(input.hit('v')) { playSound("click", .5); this.assetOpen=!this.assetOpen; this.message(this.assetOpen?'Asset viewer opened. [ / ] pages, V closes.':'Asset viewer closed.'); }
     if(this.assetOpen){ if(input.hit('[')) this.assetPage=(this.assetPage+SHEET_ORDER.length-1)%SHEET_ORDER.length; if(input.hit(']')) this.assetPage=(this.assetPage+1)%SHEET_ORDER.length; return; }
     for(let i=0;i<10;i++) if(input.hit(String((i+1)%10))) this.selectedSlot=i;
     if(input.hit('[')) this.selectedSlot=(this.selectedSlot+HOTBAR.length-1)%HOTBAR.length;
@@ -104,7 +126,27 @@ export class Game {
   updatePlayer(dt){
     const p=this.player, input=this.input;
     let dx=0,dy=0; if(input.down('w')||input.down('arrowup')) dy--; if(input.down('s')||input.down('arrowdown')) dy++; if(input.down('a')||input.down('arrowleft')) dx--; if(input.down('d')||input.down('arrowright')) dx++;
-    if(dx||dy){ const len=Math.hypot(dx,dy); dx/=len; dy/=len; if(Math.abs(dx)>.05) p.facing=dx<0?'left':'right'; p.dir=Math.abs(dx)>Math.abs(dy)?'side':(dy<0?'up':'down'); p.walk += dt*(p.onRaft?4:7); const sprint=input.down('shift') && p.stamina>5 && p.hunger>0; let speed=(p.onRaft?130:118)*(sprint?1.42:1); if(sprint) p.stamina=Math.max(0,p.stamina-18*dt); this.moveEntity(p,dx*speed*dt,dy*speed*dt,{onRaft:p.onRaft}); }
+
+    // Virtual touch movement if target is set
+    if (p.target) {
+      const d=Math.hypot(p.target.x - p.x, p.target.y - p.y);
+      if (d > 10) {
+        dx = (p.target.x - p.x) / d;
+        dy = (p.target.y - p.y) / d;
+      } else {
+        p.target = null;
+      }
+      if (input.mouse.down && input.mouse.y < this.canvas.height - 80) {
+        p.target = {x: input.mouse.worldX, y: input.mouse.worldY};
+      } else if (!input.mouse.down) {
+        p.target = null;
+      }
+    } else if (input.mouse.down && input.mouse.y < this.canvas.height - 80 && !this.craftOpen && !this.helpOpen && !this.assetOpen && !this.win && !this.gameOver) {
+      // Tap and hold
+      p.target = {x: input.mouse.worldX, y: input.mouse.worldY};
+    }
+
+    if(dx||dy){ const len=Math.hypot(dx,dy); dx/=len; dy/=len; if(Math.abs(dx)>.05) p.facing=dx<0?'left':'right'; p.dir=Math.abs(dx)>Math.abs(dy)?'side':(dy<0?'up':'down'); p.walk += dt*(p.onRaft?4:7); if (Math.floor(p.walk*5) % 2 === 0 && Math.random()<0.05) playSound("step", 0.05); const sprint=input.down('shift') && p.stamina>5 && p.hunger>0; let speed=(p.onRaft?130:118)*(sprint?1.42:1); if(sprint) p.stamina=Math.max(0,p.stamina-18*dt); this.moveEntity(p,dx*speed*dt,dy*speed*dt,{onRaft:p.onRaft}); }
     p.attackCd=Math.max(0,p.attackCd-dt); p.invuln=Math.max(0,p.invuln-dt);
     p.hunger=Math.max(0,p.hunger-dt*(p.onRaft ? .68 : .42));
     if(p.hunger<=0) this.damagePlayer(4*dt); else p.stamina=clamp(p.stamina+30*dt,0,p.maxStamina);
@@ -134,8 +176,13 @@ export class Game {
     }
     const pd=distance(e.x,e.y,tx,ty); if(pd<=0.01) return d;
     const vx=(tx-e.x)/pd, vy=(ty-e.y)/pd;
-    if(Math.abs(vx)>.15) e.facing=vx<0?'left':'right'; else e.facing=vy<0?'up':'down';
+
+    const ox=e.x, oy=e.y;
     const moved=this.moveEntity(e,vx*speed*dt,vy*speed*dt,{...opts,radius});
+    const actualDx=e.x-ox, actualDy=e.y-oy;
+    if(Math.abs(actualDx) > 0.05) e.facing=actualDx<0?'left':'right';
+    else if(Math.abs(actualDy) > 0.05) e.facing=actualDy<0?'up':'down';
+
     e.stuckTime = moved<.2 ? (e.stuckTime||0)+dt : 0;
     if(e.stuckTime>.6){ e.pathTimer=0; e.stuckTime=0; }
     return d;
@@ -287,7 +334,7 @@ export class Game {
     const food=ITEM_INFO[item]?.food || 44; addToBag(p.inv,item,-1); p.hunger=clamp(p.hunger+food,0,p.maxHunger); p.health=clamp(p.health+food*.22,0,p.maxHealth); this.addFloat(`+${food} food`,p.x,p.y-48,COLORS.yellow); this.message(`Ate ${itemName(item)}.`);
   }
   hitResource(r,power,tool){
-    r.hp-=power; r.hitFlash=.12; this.screenImpact(.045); this.emitChips(r.x,r.y-18,r.type==='tree'?COLORS.wood:(r.type==='bush'?COLORS.grassLight:COLORS.stoneLight),8); this.addFloat('-',r.x,r.y-30,'#fff');
+    r.hp-=power; r.hitFlash=.12; this.screenImpact(.045); playSound(r.type==="tree"?"chop":"mine", .6); this.emitChips(r.x,r.y-18,r.type==='tree'?COLORS.wood:(r.type==='bush'?COLORS.grassLight:COLORS.stoneLight),8); this.addFloat('-',r.x,r.y-30,'#fff');
     if(r.hp<=0){
       if(r.type==='tree'){ this.world.addItem('wood',r.x,r.y,2+Math.floor(Math.random()*3)); this.world.addItem('fiber',r.x+8,r.y,1+Math.floor(Math.random()*2)); if(Math.random()<.35) this.world.addItem('banana',r.x-8,r.y,1); }
       else if(r.type==='rock'){ this.world.addItem('stone',r.x,r.y,2+Math.floor(Math.random()*3)); if(Math.random()<.18) this.world.addItem('iron',r.x+8,r.y,1); }
@@ -306,7 +353,7 @@ export class Game {
     e.hp-=dmg; e.hitFlash=.22; e.pathTimer=0;
     this.moveEntity(e,kx*(weapon==='metal_sword'?18:12),ky*(weapon==='metal_sword'?18:12),{radius:e.type==='boss'?16:10});
     this.screenImpact(e.type==='boss'?.13:.09);
-    this.emitChips(e.x,e.y-18, e.type==='boss'?'#ff6a55':'#9cff83',14);
+    this.emitChips(e.x,e.y-18, e.type==='boss'?'#ff6a55':'#9cff83',14); playSound("hitEnemy", .6);
     this.addFloat(`-${dmg}`,e.x,e.y-35,weapon==='metal_sword'?COLORS.cyan:COLORS.white);
     if(e.hp<=0) this.killEnemy(e);
   }
@@ -319,7 +366,7 @@ export class Game {
     bp.progress += actor===this.player ? 1.25 : .8;
     this.emitChips(bp.x,bp.y-20,COLORS.yellow,5);
     if(bp.progress>=bp.needProgress){
-      const b=this.world.addBuilding(bp.type,bp.x,bp.y,{}); if(bp.type==='bed') this.player.respawn={x:b.x,y:b.y}; this.world.removeBlueprint(bp.id); this.message(`${BUILD_RECIPES[bp.type].name} built.`); this.onBuildComplete(bp.type);
+      const b=this.world.addBuilding(bp.type,bp.x,bp.y,{}); if(bp.type==='bed') this.player.respawn={x:b.x,y:b.y}; this.world.removeBlueprint(bp.id); this.message(`${BUILD_RECIPES[bp.type].name} built.`); playSound("build", .6); this.onBuildComplete(bp.type);
     }
   }
   onBuildComplete(type){ if(type==='workbench'){ this.unlocked.craft.pickaxe=true; this.unlocked.craft.sword=true; this.message('Discovery: Workbench recipes unlocked. Queue tools from C.'); } if(type==='forge') this.unlocked.craft.metal_sword=true; if(type==='raft') this.message('Raft ready. Interact with it to sail to another island.'); }
@@ -390,7 +437,7 @@ export class Game {
       else if(e.attackCd<=0){ e.attackCd=e.type==='boss'?1.2:.85; e.hitFlash=.08; if(target.type==='player') this.damagePlayer(e.type==='boss'?22:10); else if(target.type==='monkey') this.damageMonkey(target.ref,e.type==='boss'?20:8); else if(target.type==='building') this.damageBuilding(target.ref,e.type==='boss'?22:8); }
     }
   }
-  damagePlayer(amount){ const p=this.player; if(p.invuln>0 && amount>=1) return; p.health-=amount; if(amount>=1) { p.invuln=.55; this.damageFlash=1; this.screenImpact(.11); this.emitChips(p.x,p.y-18,COLORS.red,8); this.addFloat(`-${Math.ceil(amount)}`,p.x,p.y-48,COLORS.red); } if(p.health<=0){ this.playerDeath(); } }
+  damagePlayer(amount){ const p=this.player; if(p.invuln>0 && amount>=1) return; p.health-=amount; if(amount>=1) { p.invuln=.55; this.damageFlash=1; this.screenImpact(.11); playSound("playerHit", .6); this.emitChips(p.x,p.y-18,COLORS.red,8); this.addFloat(`-${Math.ceil(amount)}`,p.x,p.y-48,COLORS.red); } if(p.health<=0){ this.playerDeath(); } }
   damageMonkey(m,amt){ m.hp-=amt; m.hitFlash=.2; this.emitChips(m.x,m.y-20,COLORS.red,5); this.addFloat('ouch',m.x,m.y-34,COLORS.red); if(m.hp<=0){ m.hp=m.maxHp; m.x=this.player.x+20; m.y=this.player.y+20; m.order=null; m.carry=null; m.path=[]; this.message(`${m.name} fled, recovered, and forgot its task.`); } }
   damageBuilding(b,amt){ if(!b.hp || b.hp>900) b.hp=BUILD_RECIPES[b.type]?.hp||90; b.hp-=amt; b.hitFlash=.2; this.emitChips(b.x,b.y-10,COLORS.wood,6); if(b.hp<=0){ const i=this.world.buildings.indexOf(b); if(i>=0) this.world.buildings.splice(i,1); this.message(`${itemName(b.type)} was destroyed!`); } }
   playerDeath(){ this.player.health=this.player.maxHealth; this.player.hunger=Math.max(35,this.player.hunger); this.player.stamina=this.player.maxStamina; this.player.x=this.player.respawn.x; this.player.y=this.player.respawn.y; this.message('You collapsed and woke up at your bed/spawn.', COLORS.red); }
@@ -402,8 +449,8 @@ export class Game {
     if(this.monkeys.length<1 && this.world.kind==='overworld') this.spawnMonkey(this.world.spawn.x+90,this.world.spawn.y+80,false);
     for(const m of this.monkeys){ m.attackCd=Math.max(0,m.attackCd-dt); m.actCd=Math.max(0,m.actCd-dt); m.hitFlash=Math.max(0,(m.hitFlash||0)-dt); m.walk+=dt; if(!m.tamed){ this.updateWildMonkey(m,dt); continue; } if(!m.order) this.monkeyFollow(m,dt); else this.updateMonkeyOrder(m,dt); }
   }
-  updateWildMonkey(m,dt){ m.wander += (Math.random()-.5)*dt*2; if(Math.random()<dt*.05) m.wander=Math.random()*TWO_PI; const vx=Math.cos(m.wander), vy=Math.sin(m.wander); if(Math.abs(vx)>.15) m.facing=vx<0?'left':'right'; else m.facing=vy<0?'up':'down'; this.moveEntity(m,vx*22*dt,vy*22*dt,{radius:9}); }
-  monkeyFollow(m,dt){ const p=this.player; const d=distance(m.x,m.y,p.x,p.y); if(d>66) this.moveToward(m,p.x,p.y,94,dt,{radius:9,maxNodes:900}); }
+  updateWildMonkey(m,dt){ m.wander += (Math.random()-.5)*dt*2; if(Math.random()<dt*.05) m.wander=Math.random()*TWO_PI; const vx=Math.cos(m.wander), vy=Math.sin(m.wander); const ox=m.x, oy=m.y; this.moveEntity(m,vx*22*dt,vy*22*dt,{radius:9}); const actualDx=m.x-ox, actualDy=m.y-oy; if(Math.hypot(actualDx,actualDy) < 0.2) m.wander = Math.random()*TWO_PI; if(Math.abs(actualDx) > 0.05) m.facing=actualDx<0?'left':'right'; else if(Math.abs(actualDy) > 0.05) m.facing=actualDy<0?'up':'down'; }
+  monkeyFollow(m,dt){ const p=this.player; const d=distance(m.x,m.y,p.x,p.y); if(d>66) this.moveToward(m,p.x,p.y,94,dt,{radius:9,maxNodes:900, allowWater:false}); }
   updateMonkeyOrder(m,dt){
     if(m.order.type==='harvest') this.monkeyHarvest(m,dt);
     else if(m.order.type==='gather') this.monkeyGather(m,dt);
@@ -411,7 +458,7 @@ export class Game {
     else if(m.order.type==='craft') this.monkeyCraft(m,dt);
     else if(m.order.type==='combat') this.monkeyCombat(m,dt);
   }
-  monkeyMoveTo(m,x,y,speed,dt){ return this.moveToward(m,x,y,speed,dt,{radius:9}); }
+  monkeyMoveTo(m,x,y,speed,dt){ return this.moveToward(m,x,y,speed,dt,{radius:9, allowWater:false}); }
   monkeyHarvest(m,dt){
     if(m.carry){ this.monkeyDepositCarry(m,dt); return; }
     const type=m.order.resourceType; const target=this.world.nearestResource(m.x,m.y,r=> type==='tree'?r.type==='tree': type==='rock'?r.type==='rock'||r.type==='iron': r.type===type,99999);
@@ -602,16 +649,28 @@ export class Game {
     ctx.restore();
   }
   drawHotbar(ctx){
-    const slot=52, gap=8, count=HOTBAR.length; const w=count*slot+(count-1)*gap; const x0=(this.canvas.width-w)/2, y=this.canvas.height-72;
-    this.panel(ctx,x0-14,y-22,w+28,74,.7);
+    const count=HOTBAR.length;
+    const maxW = this.canvas.width - 40;
+    const baseSlot = 52;
+    const baseGap = 8;
+    const baseTotal = count * baseSlot + (count - 1) * baseGap;
+
+    // Scale down slot/gap if screen is too small
+    const scale = Math.min(1, maxW / baseTotal);
+    const slot = Math.floor(baseSlot * scale);
+    const gap = Math.floor(baseGap * scale);
+    const w = count*slot + (count-1)*gap;
+
+    const x0 = (this.canvas.width-w)/2, y=this.canvas.height - slot - 20;
+    this.panel(ctx,x0-14,y-22,w+28,slot+22,.7);
     for(let i=0;i<count;i++){
       const x=x0+i*(slot+gap), id=HOTBAR[i];
       ctx.fillStyle=i===this.selectedSlot?'rgba(255,216,90,.22)':'rgba(12,18,26,.78)'; ctx.fillRect(x,y,slot,slot);
       ctx.strokeStyle=i===this.selectedSlot?COLORS.yellow:'rgba(255,255,255,.28)'; ctx.lineWidth=i===this.selectedSlot?3:2; ctx.strokeRect(x+.5,y+.5,slot,slot);
-      this.art.drawIconShape(ctx,id,x+slot/2,y+slot/2,.88);
+      this.art.drawIconShape(ctx,id,x+slot/2,y+slot/2,.88 * scale);
       let qty=this.player.inv[id]||0; if(BUILD_RECIPES[id]) qty=this.unlocked.build[id]?'B':''; if(ITEM_INFO[id]?.tool && qty>0) qty='';
-      if(qty){ ctx.font='bold 12px monospace'; ctx.textAlign='right'; ctx.strokeStyle='black'; ctx.lineWidth=3; ctx.strokeText(String(qty),x+slot-5,y+slot-6); ctx.fillStyle='white'; ctx.fillText(String(qty),x+slot-5,y+slot-6); }
-      ctx.font='bold 10px monospace'; ctx.textAlign='left'; ctx.fillStyle='rgba(255,255,255,.72)'; ctx.fillText(i===9?'0':String(i+1),x+5,y+12);
+      if(qty){ ctx.font=`bold ${Math.floor(12*scale)}px monospace`; ctx.textAlign='right'; ctx.strokeStyle='black'; ctx.lineWidth=3; ctx.strokeText(String(qty),x+slot-5*scale,y+slot-6*scale); ctx.fillStyle='white'; ctx.fillText(String(qty),x+slot-5*scale,y+slot-6*scale); }
+      ctx.font=`bold ${Math.floor(10*scale)}px monospace`; ctx.textAlign='left'; ctx.fillStyle='rgba(255,255,255,.72)'; ctx.fillText(i===9?'0':String(i+1),x+5*scale,y+12*scale);
     }
     ctx.font='bold 16px monospace'; ctx.textAlign='center'; ctx.fillStyle=COLORS.white; const sel=this.currentHotbarItem(); ctx.fillText(itemName(sel),this.canvas.width/2,y-6);
   }

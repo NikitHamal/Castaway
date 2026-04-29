@@ -6,5 +6,20 @@
   "scripts": {
     "start": "python -m http.server 8080"
   },
-  "type": "module"
+  "type": "module",
+  "main": "index.js",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/NikitHamal/Castaway.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/NikitHamal/Castaway/issues"
+  },
+  "homepage": "https://github.com/NikitHamal/Castaway#readme",
+  "dependencies": {
+    "jimp": "^1.6.1"
+  }
 }

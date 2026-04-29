@@ -1,10 +1,10 @@
 // Shared constants, data tables and tiny utilities for the Castaway runtime.
-export const TILE = 36;
+export const TILE = 48;
 export const USE_CURATED_UI_TEXTURES = false;
-export const PLAYER_DRAW_HEIGHT = 44;
-export const MONKEY_DRAW_HEIGHT = 36;
-export const GOBLIN_DRAW_HEIGHT = 48;
-export const BOSS_DRAW_HEIGHT = 72;
+export const PLAYER_DRAW_HEIGHT = 60;
+export const MONKEY_DRAW_HEIGHT = 48;
+export const GOBLIN_DRAW_HEIGHT = 64;
+export const BOSS_DRAW_HEIGHT = 96;
 export const WORLD_W = 96;
 export const WORLD_H = 96;
 export const SAVE_KEY = 'castaway_mimics_save_v2';
@@ -336,3 +336,28 @@ export function wrapTextLines(ctx, text, maxWidth){
   lines.push(line);
   return lines;
 }
+
+// ZzFX - Zuper Zmall Zeckless Zound Zynthesizer v1.2.1
+// by Frank Force 2021
+const zzfx=(...t)=>zzfxP(zzfxG(...t));const zzfxP=(...t)=>{let e=zzfxX.createBufferSource(),f=zzfxX.createBuffer(t.length,t[0].length,zzfxR);t.map((d,i)=>f.getChannelData(i).set(d)),e.buffer=f,e.connect(zzfxX.destination),e.start();return e;};const zzfxG=(q=1,k=.05,c=220,e=0,t=0,u=.1,r=0,F=1,v=0,z=0,w=0,AA=0,l=0,B=0,x=0,A=0,d=0,y=1,m=0,p=0)=>{let b=2*Math.PI,H=v*=500*b/zzfxR**2,I=(0<x?1:-1)*b/4,D=c*=(1+2*k*Math.random()-k)*b/zzfxR,Z=[],g=0,E=0,a=0,n=1,J=0,K=0,f=0,pp=8==w?b/4:1,M=zzfxR*e|0,N=zzfxR*t|0,O=zzfxR*u|0,S=zzfxR*d|0,h=M+N+O+S,C=1,W=Math.abs(A)*b/4;for(let j=0;j<h;j++){let P=j<M?j/M:j<M+N?1:j<h-S?1-(j-M-N)/O:0;let Q=0;if(C)Q=W?Math.sin(j*W):1;f++;if(K++>=d)K=0,Q*=C^=1,d=pp*c*(1+Math.sin(f*b/M));let R=0;if(C)R=y?Math.sin(j*y):1;let U=n*R;E+=H;D+=E;a+=D;let V=Q*P*(1-w/2+w/2*Math.sin(a));if(0<A)V=Math.max(-1,Math.min(1,V));Z[j]=V*U*q;n+=m;if(n<0)n=0;J++;}return Z;};const zzfxX=new(window.AudioContext||window.webkitAudioContext);const zzfxR=44100;
+
+export const SOUNDS = {
+  hitResource: [,,181,,.03,.08,1,1.52,,,-178,.06,,,39,,,.88,.04],
+  hitEnemy: [,,178,.01,.01,.13,4,1.83,,,-187,,,.6,29,,,.73,.03],
+  playerHit: [,,234,.02,.12,.13,3,1.38,-4.6,-0.1,,,,,-3.8,.3,.09,.62,.02],
+  chop: [,,538,.01,.03,.07,1,1.48,,,30,,,.1,,,,.48,.03],
+  mine: [,,513,.01,.06,.15,1,.87,-1.5,,,,-0.03,.2,24,.3,.11,.6,.03],
+  pickup: [,,1179,.01,.03,.02,1,1.41,,,320,.04,,,,,,.84,.01],
+  build: [,,294,.02,.05,.05,1,1.44,,,-10,,,.1,10,,,.68,.03],
+  click: [,,653,.01,.01,.02,1,1.15,,,,,,,,,,.43,.01],
+  step: [,.1,316,,.01,.02,1,1.75,,,-53,,,,,,,.36,.02],
+  bgm: [1.2,0,261.6256,.04,1,1.5,,.31,,,,,.09,2.8,,.1,,.87,.08]
+};
+
+export const playSound = (name, vol=1) => {
+  if (zzfxX.state !== 'running') zzfxX.resume();
+  const s = SOUNDS[name];
+  if (s) zzfx(vol, ...s.slice(1));
+};
+
+export { zzfx, zzfxG, zzfxP, zzfxX, zzfxR };
