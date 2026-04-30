@@ -1,15 +1,12 @@
 import { Game } from './engine/game.js';
+import { MainMenu } from './engine/menu.js';
 
-const canvas=document.getElementById('game'); const game=new Game(canvas);
-const boot=document.getElementById('boot'); const startBtn=document.getElementById('startBtn');
-startBtn.addEventListener('click',async()=>{
-  startBtn.disabled=true; startBtn.textContent='Loading generated assets...';
-  try { game.audio.unlock(); } catch(_e) {}
-  await game.art.loadAssets();
-  boot.classList.add('hidden');
-  canvas.focus();
-  game.start();
-  // Music kicks in inside game.updateAudio() once audio.unlocked is true.
-});
-canvas.addEventListener('click',()=>{ canvas.focus(); try { game.audio.unlock(); } catch(_e) {} });
-canvas.addEventListener('touchstart',()=>{ try { game.audio.unlock(); } catch(_e) {} }, {passive:true});
+const canvas = document.getElementById('game');
+const menuRoot = document.getElementById('menu');
+const game = new Game(canvas);
+
+new MainMenu({ root: menuRoot, game, canvas });
+
+canvas.addEventListener('click', () => { canvas.focus(); try { game.audio.unlock(); } catch (_e) {} });
+canvas.addEventListener('touchstart', () => { try { game.audio.unlock(); } catch (_e) {} }, { passive: true });
+window.addEventListener('pagehide', () => { try { if (game.started) game.saveGame({ silent: true, auto: true }); } catch (_e) {} });

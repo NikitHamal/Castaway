@@ -1,4 +1,4 @@
-// Procedural WebAudio engine for the Castaway runtime.
+// Procedural WebAudio engine for the Island runtime.
 // All SFX, ambient pads and tropical chiptune BGM are synthesized at runtime;
 // no audio files are shipped with the build.
 //
@@ -217,13 +217,6 @@ export class AudioEngine {
         this._tone({t0:now+0.24, type:'sine', f0:1040, f1:1760, dur:0.2, gain:0.28*v});
         break;
       }
-      case 'monkey_chitter': {
-        for (let i=0;i<4;i++){
-          const f = 800 + Math.random()*600;
-          this._tone({t0:now + i*0.06, type:'triangle', f0:f, f1:f*1.4, dur:0.06, gain:0.16*v});
-        }
-        break;
-      }
       case 'raid_alert': {
         for (let i=0;i<3;i++){
           this._tone({t0:now + i*0.18, type:'sawtooth', f0:280, f1:520, dur:0.16, gain:0.4*v});
@@ -238,7 +231,10 @@ export class AudioEngine {
         break;
       }
       case 'splash': {
-        this._noise({t0:now, freq:600, q:0.8, dur:0.32, gain:0.42*v, filterType:'lowpass'});
+        if (!this._throttle('splash', 120)) return;
+        this._noise({t0:now, freq:980, q:0.9, dur:0.16, gain:0.24*v, filterType:'bandpass'});
+        this._noise({t0:now+0.02, freq:420, q:0.7, dur:0.36, gain:0.34*v, filterType:'lowpass'});
+        this._tone({t0:now, type:'sine', f0:220, f1:120, dur:0.14, gain:0.08*v});
         break;
       }
       case 'fire_pop': {
@@ -247,8 +243,22 @@ export class AudioEngine {
         break;
       }
       case 'footstep': {
-        if (!this._throttle('foot', 240)) return;
-        this._noise({t0:now, freq:opts.freq||320, q:1.4, dur:0.06, gain:0.16*v, filterType:'lowpass'});
+        if (!this._throttle('foot', 220)) return;
+        this._noise({t0:now, freq:opts.freq||320, q:1.5, dur:0.05, gain:0.13*v, filterType:'lowpass'});
+        this._tone({t0:now, type:'triangle', f0:110, f1:82, dur:0.05, gain:0.03*v});
+        break;
+      }
+      case 'wade': {
+        if (!this._throttle('wade', 180)) return;
+        this._noise({t0:now, freq:760, q:0.8, dur:0.11, gain:0.16*v, filterType:'bandpass'});
+        this._noise({t0:now+0.01, freq:280, q:0.7, dur:0.18, gain:0.22*v, filterType:'lowpass'});
+        this._tone({t0:now, type:'sine', f0:180, f1:110, dur:0.1, gain:0.045*v});
+        break;
+      }
+      case 'jump': {
+        if (!this._throttle('jump', 120)) return;
+        this._noise({t0:now, freq:280, q:0.9, dur:0.08, gain:0.10*v, filterType:'lowpass'});
+        this._tone({t0:now, type:'triangle', f0:190, f1:310, dur:0.12, gain:0.09*v});
         break;
       }
     }
@@ -315,28 +325,34 @@ export class AudioEngine {
     const localGain = ctx.createGain();
 
     if (kind === 'overworld'){ 
-      filt.type='lowpass'; filt.frequency.value = 400; 
-      localGain.gain.value = 0.08; 
+      filt.type='lowpass'; filt.frequency.value = 520; 
+      localGain.gain.value = 0.07; 
       
-      // Modulate filter frequency to simulate waves
       const lfoFreq = ctx.createOscillator();
       lfoFreq.type = 'sine';
-      lfoFreq.frequency.value = 0.12;
+      lfoFreq.frequency.value = 0.09;
       const lfoFreqGain = ctx.createGain();
-      lfoFreqGain.gain.value = 300; 
+      lfoFreqGain.gain.value = 220; 
       lfoFreq.connect(lfoFreqGain).connect(filt.frequency);
       lfoFreq.start();
-      
-      // Modulate volume slightly
+
       const lfoVol = ctx.createOscillator();
       lfoVol.type = 'sine';
-      lfoVol.frequency.value = 0.12;
+      lfoVol.frequency.value = 0.11;
       const lfoVolGain = ctx.createGain();
-      lfoVolGain.gain.value = 0.06;
+      lfoVolGain.gain.value = 0.02;
       lfoVol.connect(lfoVolGain).connect(localGain.gain);
       lfoVol.start();
 
-      this.ambientLFOs = [lfoFreq, lfoVol];
+      const surf = ctx.createOscillator();
+      surf.type = 'sine';
+      surf.frequency.value = 0.18;
+      const surfGain = ctx.createGain();
+      surfGain.gain.value = 35;
+      surf.connect(surfGain).connect(filt.detune);
+      surf.start();
+
+      this.ambientLFOs = [lfoFreq, lfoVol, surf];
     }
     else if (kind === 'night'){ filt.type='lowpass'; filt.frequency.value = 600; localGain.gain.value = 0.12; }
     else if (kind === 'dungeon'){ filt.type='lowpass'; filt.frequency.value = 380; localGain.gain.value = 0.14; }

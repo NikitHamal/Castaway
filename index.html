@@ -5,24 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="mobile-web-app-capable" content="yes" />
-  <meta name="theme-color" content="#0b1220" />
-  <title>Castaway Mimics</title>
+  <meta name="theme-color" content="#071320" />
+  <meta name="description" content="Island — open-world tropical survival sandbox." />
+  <title>Island</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <canvas id="game" width="1280" height="720" aria-label="Castaway Mimics game canvas"></canvas>
-  <div id="boot" class="boot">
-    <div class="boot-card">
-      <div class="boot-title">CASTAWAY MIMICS</div>
-      <div class="boot-subtitle">top-down survival sandbox</div>
-      <div class="boot-note">
-        <strong>Desktop:</strong> WASD to move, mouse to aim, Space to use, E to interact, F1 for full controls.<br/>
-        <strong>Mobile:</strong> drag the left half to move; tap right-side buttons to attack, interact (E), place blueprints (F), open craft (C), cycle blueprints (B), or use mimic (M).
-      </div>
-      <button id="startBtn">Start</button>
-      <div class="boot-foot">Audio is procedurally synthesised — turn on your sound and tap ♪ in-game to mute.</div>
-    </div>
-  </div>
+  <canvas id="game" width="1280" height="720" aria-label="Island game canvas" tabindex="0"></canvas>
+  <div id="menu" class="menu-root" aria-live="polite"></div>
   <script type="module" src="src/main.js"></script>
 </body>
 </html>

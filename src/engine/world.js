@@ -1,253 +1,167 @@
-import {
-  TILE,
-  WORLD_W,
-  WORLD_H,
-  BUILD_RECIPES,
-  clamp,
-  dist2,
-  distance,
-  randRange,
-  nowId,
-  hash2,
-  mulberry32,
-  deepClone,
-  finiteNumber
-} from './shared.js';
+import { TILE, WORLD_W, WORLD_H, BUILDINGS, clamp, distance, dist2, hash2, mulberry32, randRange, choice, nowId, finiteNumber } from './shared.js';
+
+const WALKABLE = new Set(['grass','grass2','meadow','dirt','path','sand','shore','shallow','stone','woodfloor']);
+const WATERISH = new Set(['water','shallow','shore']);
 
 export class World {
-  constructor(seed, kind='overworld', island=1){
-    this.seed = seed|0; this.kind = kind; this.island = island;
-    this.w = kind === 'dungeon' ? 36 : WORLD_W;
-    this.h = kind === 'dungeon' ? 28 : WORLD_H;
-    this.tiles = new Array(this.w*this.h);
-    this.resources = []; this.items = []; this.buildings = []; this.blueprints = []; this.enemies = [];
-    this.defeatedVault = false;
-    this.spawn = {x: Math.floor(this.w/2)*TILE + TILE/2, y: Math.floor(this.h/2)*TILE + TILE/2};
-    if (kind === 'dungeon') this.generateDungeon(); else this.generateOverworld();
+  constructor(seed=Date.now()&0x7fffffff, data=null){
+    this.seed=seed|0; this.w=WORLD_W; this.h=WORLD_H; this.tiles=new Array(this.w*this.h).fill('water');
+    this.resources=[]; this.items=[]; this.buildings=[]; this.animals=[]; this.enemies=[]; this.crops=[]; this.decorations=[]; this.paths=[];
+    this.spawn={x:this.w*TILE/2,y:this.h*TILE/2}; this.rng=mulberry32(this.seed);
+    if(data) this.fromData(data); else this.generate();
   }
-  idx(tx,ty){ return ty*this.w + tx; }
-  inBounds(tx,ty){ return tx>=0 && ty>=0 && tx<this.w && ty<this.h; }
-  tile(tx,ty){ if(!this.inBounds(tx,ty)) return 'water'; return this.tiles[this.idx(tx,ty)] || 'grass'; }
-  setTile(tx,ty,t){ if(this.inBounds(tx,ty)) this.tiles[this.idx(tx,ty)] = t; }
-  generateOverworld(){
-    const rng = mulberry32(this.seed);
-    const cx = this.w/2 + randRange(rng,-5,5), cy = this.h/2 + randRange(rng,-5,5);
-    const swamp = {x: Math.floor(randRange(rng,18,this.w-18)), y: Math.floor(randRange(rng,18,this.h-18)), r: randRange(rng,9,14)};
-    const volcano = {x: Math.floor(randRange(rng,18,this.w-18)), y: Math.floor(randRange(rng,18,this.h-18)), r: randRange(rng,7,12)};
-    for (let y=0;y<this.h;y++) for (let x=0;x<this.w;x++){
-      const nx=(x-cx)/(this.w*.47), ny=(y-cy)/(this.h*.43);
-      const d=Math.sqrt(nx*nx+ny*ny);
-      const n=(hash2(Math.floor(x/3),Math.floor(y/3),this.seed)-.5)*.32 + (hash2(x,y,this.seed+9)-.5)*.10;
-      let score = 1 - d + n;
-      let t='grass';
-      if (score < .02) t='water'; else if (score < .09) t='shallow'; else if (score < .20) t='sand'; else t = hash2(x,y,this.seed+3)>.87?'grass2':'grass';
-      const sd = Math.hypot(x-swamp.x,y-swamp.y); if (score>.22 && sd < swamp.r) t='swamp';
-      const vd = Math.hypot(x-volcano.x,y-volcano.y); if (score>.22 && vd < volcano.r) t = vd < volcano.r*.33 ? 'lava' : 'ash';
+  idx(x,y){ return y*this.w+x; }
+  inBounds(x,y){ return x>=0&&y>=0&&x<this.w&&y<this.h; }
+  tile(x,y){ return this.inBounds(x,y)?this.tiles[this.idx(x,y)]:'water'; }
+  setTile(x,y,t){ if(this.inBounds(x,y)) this.tiles[this.idx(x,y)]=t; }
+  generate(){
+    const rng=this.rng, cx=this.w*.5+randRange(rng,-4,4), cy=this.h*.5+randRange(rng,-4,4);
+    const lobes=[
+      {x:cx,y:cy,rx:48,ry:34}, {x:cx-28,y:cy+4,rx:25,ry:18}, {x:cx+30,y:cy-8,rx:28,ry:20},
+      {x:cx+4,y:cy+26,rx:26,ry:18}, {x:cx-6,y:cy-25,rx:24,ry:18}
+    ];
+    for(let y=0;y<this.h;y++) for(let x=0;x<this.w;x++){
+      let v=-999;
+      for(const l of lobes){ const n=(hash2(Math.floor(x/4),Math.floor(y/4),this.seed)-.5)*.11; v=Math.max(v,1-Math.hypot((x-l.x)/l.rx,(y-l.y)/l.ry)+n); }
+      let t='water';
+      if(v>.015) t='shallow'; if(v>.105) t='shore'; if(v>.19) t='sand'; if(v>.31) t=hash2(x,y,this.seed+7)>.70?'grass2':'grass'; if(v>.52 && hash2(x,y,this.seed+9)>.57) t='meadow';
       this.setTile(x,y,t);
     }
-    // Safe starter beach/green patch.
-    const spawnTile = this.findSpawnTile();
-    this.spawn = {x: spawnTile.x*TILE+TILE/2, y: spawnTile.y*TILE+TILE/2};
-    for (let yy=-5; yy<=5; yy++) for (let xx=-5; xx<=5; xx++){
-      const tx=spawnTile.x+xx, ty=spawnTile.y+yy; if(!this.inBounds(tx,ty)) continue;
-      const d=Math.hypot(xx,yy); if(d<2.2) this.setTile(tx,ty,'sand'); else if(d<5 && this.tile(tx,ty)!=='water') this.setTile(tx,ty, d<3.8?'grass':'sand');
-    }
-    this.addPaths(spawnTile, rng);
-    this.populateResources(rng, spawnTile);
-    this.placePOIs(rng, spawnTile);
+    this.smooth();
+    const sp=this.findSpawn(); this.spawn={x:sp.x*TILE+TILE/2,y:sp.y*TILE+TILE*.74};
+    this.clearArea(sp.x,sp.y,13);
+    this.makeVillage(sp);
+    this.populateResources(sp);
+    this.populateAnimals(sp);
+    this.spawnEnemies(sp);
   }
-  findSpawnTile(){
-    let best={x:Math.floor(this.w/2),y:Math.floor(this.h/2),score:99};
-    for(let y=10;y<this.h-10;y++) for(let x=10;x<this.w-10;x++){
-      const t=this.tile(x,y); if(t==='water'||t==='shallow'||t==='lava'||t==='ash'||t==='swamp') continue;
-      const edge=Math.min(x,y,this.w-1-x,this.h-1-y); const score=Math.abs(edge-16)+hash2(x,y,this.seed)*4;
+  smooth(){
+    for(let pass=0;pass<2;pass++){
+      const next=this.tiles.slice();
+      for(let y=1;y<this.h-1;y++) for(let x=1;x<this.w-1;x++){
+        const c={}; for(let yy=-1;yy<=1;yy++) for(let xx=-1;xx<=1;xx++){ const t=this.tile(x+xx,y+yy); c[t]=(c[t]||0)+1; }
+        const t=this.tile(x,y);
+        if((t==='grass'||t==='grass2'||t==='meadow') && ((c.water||0)+(c.shallow||0)>0)) next[this.idx(x,y)]='sand';
+        if(t==='sand' && (c.water||0)>2) next[this.idx(x,y)]='shore';
+        if(t==='shore' && (c.water||0)>4) next[this.idx(x,y)]='shallow';
+      }
+      this.tiles=next;
+    }
+  }
+  findSpawn(){
+    let best={x:Math.floor(this.w/2),y:Math.floor(this.h/2),score:Infinity};
+    for(let y=12;y<this.h-12;y++) for(let x=12;x<this.w-12;x++){
+      const t=this.tile(x,y); if(!['grass','grass2','meadow','sand'].includes(t)) continue;
+      let water=0, land=0; for(let yy=-7;yy<=7;yy++) for(let xx=-7;xx<=7;xx++){ const nt=this.tile(x+xx,y+yy); if(nt==='water'||nt==='shallow'||nt==='shore') water++; else land++; }
+      const score=Math.abs(water-18)*.8 - land*.06 + Math.hypot(x-this.w/2,y-this.h/2)*.22 + hash2(x,y,this.seed)*4;
       if(score<best.score) best={x,y,score};
     }
     return best;
   }
-  addPaths(spawnTile,rng){
-    const targets=[];
-    for(let i=0;i<4;i++) targets.push({x:Math.floor(randRange(rng,14,this.w-14)),y:Math.floor(randRange(rng,14,this.h-14))});
-    for(const target of targets){
-      let x=spawnTile.x, y=spawnTile.y;
-      for(let n=0;n<250 && (Math.abs(x-target.x)>1 || Math.abs(y-target.y)>1); n++){
-        if(this.tile(x,y)!=='water' && this.tile(x,y)!=='shallow' && this.tile(x,y)!=='lava') this.setTile(x,y,'path');
-        if(rng()<.55) x += Math.sign(target.x-x); else y += Math.sign(target.y-y);
-        if(!this.inBounds(x,y)) break;
-      }
+  clearArea(cx,cy,r){
+    for(let y=cy-r;y<=cy+r;y++) for(let x=cx-r;x<=cx+r;x++){
+      if(!this.inBounds(x,y)) continue; const d=Math.hypot(x-cx,y-cy);
+      if(d<2.5) this.setTile(x,y,'path'); else if(d<r) this.setTile(x,y,d>r-1?'grass':'grass2');
     }
   }
-  populateResources(rng, spawnTile){
-    for(let y=3;y<this.h-3;y++) for(let x=3;x<this.w-3;x++){
-      const t=this.tile(x,y); if(t==='water'||t==='shallow'||t==='lava'||t==='path') continue;
-      const nearSpawn = Math.hypot(x-spawnTile.x,y-spawnTile.y) < 6;
-      const r=hash2(x,y,this.seed+44);
-      if(!nearSpawn && (t==='grass'||t==='grass2'||t==='sand') && r>.91) this.addResource('tree',x*TILE+TILE/2+randRange(rng,-5,5),y*TILE+TILE*.55+randRange(rng,-5,5),{variant:r>.96?1:0});
-      else if(!nearSpawn && (t==='grass'||t==='grass2'||t==='sand'||t==='ash') && r>.84 && r<=.91) this.addResource(t==='ash'?'iron':'rock',x*TILE+TILE/2,y*TILE+TILE*.5);
-      else if((t==='grass'||t==='grass2'||t==='swamp') && r>.78 && r<=.84) this.addResource('bush',x*TILE+TILE/2,y*TILE+TILE*.5);
-    }
-    // starter supplies
-    for(let i=0;i<6;i++) this.addResource(i%3===0?'rock':(i%3===1?'tree':'bush'), this.spawn.x + randRange(rng,-180,180), this.spawn.y + randRange(rng,-160,160));
-    // Smooth shores: any sand tile with a water neighbour beyond range 1 becomes shallow,
-    // any grass touching water gets a sand collar. Removes harsh single-pixel shoreline noise.
-    const next = this.tiles.slice();
-    for (let y=1;y<this.h-1;y++) for (let x=1;x<this.w-1;x++){
-      const t=this.tile(x,y);
-      const hasWater=this.tile(x-1,y)==='water'||this.tile(x+1,y)==='water'||this.tile(x,y-1)==='water'||this.tile(x,y+1)==='water';
-      const hasShallow=this.tile(x-1,y)==='shallow'||this.tile(x+1,y)==='shallow'||this.tile(x,y-1)==='shallow'||this.tile(x,y+1)==='shallow';
-      if((t==='grass'||t==='grass2') && hasWater) next[this.idx(x,y)]='sand';
-      if(t==='sand' && hasWater && !hasShallow) next[this.idx(x,y)]='shallow';
-    }
-    this.tiles = next;
+  makeVillage(sp){
+    const addB=(type,dx,dy,extra={})=>this.addBuilding(type,(sp.x+dx)*TILE+TILE/2,(sp.y+dy)*TILE+TILE*.74,extra);
+    const plans=[['home',-7,-4],['workshop',7,-4],['shop',0,-8],['cabin',-9,5],['factory',8,5],['well',0,3],['windmill',15,-8]];
+    for(const [type,dx,dy] of plans) addB(type,dx,dy,{built:true});
+    const hubs=[[sp.x,sp.y],[sp.x-7,sp.y-4],[sp.x+7,sp.y-4],[sp.x,sp.y-8],[sp.x-9,sp.y+5],[sp.x+8,sp.y+5],[sp.x+15,sp.y-8]];
+    for(const [x1,y1] of hubs.slice(1)) this.pathBetween(sp.x,sp.y,x1,y1,2);
+    this.pathBetween(sp.x-12,sp.y+8,sp.x+13,sp.y+8,1);
+    this.makeFarm(sp.x+3, sp.y+9, 12, 6);
+    this.makeFarm(sp.x-16, sp.y-1, 7, 5);
+    const beaches=this.nearestTiles(sp.x,sp.y,t=>t==='sand'||t==='shore',3,18);
+    for(const beach of beaches){ this.addBuilding('dock',beach.x*TILE+TILE/2,beach.y*TILE+TILE*.74,{built:true}); this.pathBetween(sp.x,sp.y,beach.x,beach.y,1); this.addDecor('coracle',beach.x*TILE+TILE/2+24,beach.y*TILE+TILE*.74+10); }
+    const decs=[
+      ['crateBase',-4,-6],['crateTop',-3,-6],['crateBase',5,-7],['crateTop',6,-7],['campfire',-2,6],['bushRed',-12,-5],['bushBlue',11,-2],['bushRed',5,9],['bushBlue',-7,8],['coracleWater',13,10]
+    ];
+    for(const [type,dx,dy] of decs) this.addDecor(type,(sp.x+dx)*TILE+TILE/2,(sp.y+dy)*TILE+TILE*.74);
   }
-  placePOIs(rng, spawnTile){
-    const place = (type, tx, ty, extra={}) => this.addBuilding(type,tx*TILE+TILE/2,ty*TILE+TILE*.72,extra);
-    // caged monkeys near start
-    place('cage', spawnTile.x+5, spawnTile.y+1, {cagedMonkey:true});
-    place('chest', spawnTile.x-3, spawnTile.y+1, {storage:{wood:2, berry:2}});
-    place('totem', spawnTile.x+2, spawnTile.y-4, {});
-    place('tent', spawnTile.x-5, spawnTile.y+4, {solid:false,deco:true});
-    place('barrel', spawnTile.x-2, spawnTile.y+4, {solid:false,deco:true});
-    place('crates', spawnTile.x-4, spawnTile.y+3, {solid:false,deco:true});
-    place('table', spawnTile.x+3, spawnTile.y+4, {solid:false,deco:true});
-    place('firewood', spawnTile.x+1, spawnTile.y+5, {solid:false,deco:true});
-    // vault and galleon on distant valid tiles
-    const vault = this.findFarTile(spawnTile, t => t==='grass'||t==='grass2'||t==='path');
-    if(vault) place('vault', vault.x, vault.y, {poi:true});
-    const ship = this.findFarTile(spawnTile, t => t==='sand'||t==='shallow', true);
-    if(ship) place('galleon', ship.x, ship.y, {poi:true, repaired:false});
-    // extra monkey cage/wild supplies
-    for(let i=0;i<3;i++){
-      const p=this.findFarTile(spawnTile, t => t==='grass'||t==='sand'||t==='path');
-      if(p) place(i===0?'cage':'totem',p.x,p.y,i===0?{cagedMonkey:true}:{});
-    }
-    const deco=['ship_wreck0','ship_wreck1','ship_wreck2','signal_fire','treasure_pile','dig_spot','dock','sack','scarecrow','drying_rack','fish_rack','lantern_post'];
-    for(let i=0;i<deco.length;i++){
-      const p=this.findFarTile(spawnTile, t => t==='grass'||t==='sand'||t==='path'||t==='shallow', i%3===0);
-      if(p) place(deco[i],p.x,p.y,{solid:false,deco:true});
+  makeFarm(sx,sy,w,h){
+    for(let y=0;y<h;y++) for(let x=0;x<w;x++){
+      const tx=sx+x, ty=sy+y; if(!this.inBounds(tx,ty) || WATERISH.has(this.tile(tx,ty))) continue;
+      this.setTile(tx,ty,'dirt');
+      const c={id:nowId(),x:tx*TILE+TILE/2,y:ty*TILE+TILE*.74,plant:null,age:0,ready:false};
+      if((x+y)%3!==0){ const plants=['carrot','pumpkin','wheat','cabbage']; c.plant=plants[(x+y)%plants.length]; c.age=20+((x*7+y*5)%20); c.ready=c.age>38; }
+      this.crops.push(c);
     }
   }
-  findFarTile(spawnTile, predicate, beach=false){
-    let best=null, score=-999;
-    for(let y=5;y<this.h-5;y++) for(let x=5;x<this.w-5;x++){
-      const t=this.tile(x,y); if(!predicate(t)) continue;
-      if(this.isOccupiedTile(x,y)) continue;
-      if(beach){ let waterNear=false; for(let yy=-1;yy<=1;yy++) for(let xx=-1;xx<=1;xx++) if(this.tile(x+xx,y+yy)==='water'||this.tile(x+xx,y+yy)==='shallow') waterNear=true; if(!waterNear) continue; }
-      const d=Math.hypot(x-spawnTile.x,y-spawnTile.y) + hash2(x,y,this.seed+81)*20;
-      if(d>score){ score=d; best={x,y}; }
+  pathBetween(x,y,tx,ty,width=1){
+    let cx=x, cy=y, n=0;
+    while((cx!==tx||cy!==ty)&&n++<400){
+      for(let yy=-width;yy<=width;yy++) for(let xx=-width;xx<=width;xx++){ const px=cx+xx, py=cy+yy; if(this.inBounds(px,py)&&!WATERISH.has(this.tile(px,py))) this.setTile(px,py,'path'); }
+      if(Math.abs(tx-cx)>Math.abs(ty-cy)) cx+=Math.sign(tx-cx); else cy+=Math.sign(ty-cy);
     }
-    return best;
   }
-  isOccupiedTile(tx,ty){
-    const x=tx*TILE+TILE/2,y=ty*TILE+TILE/2;
-    return this.buildings.some(b=>distance(x,y,b.x,b.y)<TILE*1.8)||this.resources.some(r=>distance(x,y,r.x,r.y)<TILE);
+  findNearestTile(cx,cy,pred){ let best=null,bd=Infinity; for(let y=1;y<this.h-1;y++) for(let x=1;x<this.w-1;x++){ if(!pred(this.tile(x,y))) continue; const d=(x-cx)**2+(y-cy)**2; if(d<bd){bd=d;best={x,y};} } return best; }
+  nearestTiles(cx,cy,pred,count=3,minSep=10){
+    const all=[]; for(let y=1;y<this.h-1;y++) for(let x=1;x<this.w-1;x++){ if(pred(this.tile(x,y))) all.push({x,y,d:(x-cx)**2+(y-cy)**2}); }
+    all.sort((a,b)=>a.d-b.d); const out=[];
+    for(const p of all){ if(out.every(o=>Math.hypot(o.x-p.x,o.y-p.y)>=minSep)){ out.push(p); if(out.length>=count) break; } }
+    return out;
   }
-  generateDungeon(){
-    const T=TILE, H=TILE/2;
-    this.spawn = {x: 4*T+H, y: Math.floor(this.h/2)*T+H};
-    for(let y=0;y<this.h;y++) for(let x=0;x<this.w;x++){
-      let t='floor';
-      if(x===0||y===0||x===this.w-1||y===this.h-1) t='walltile';
-      if((x===12||x===23) && y>3 && y<this.h-4 && y!==Math.floor(this.h/2)) t='walltile';
-      if((y===7||y===20) && x>6 && x<this.w-7 && x!==18) t='walltile';
-      this.setTile(x,y,t);
+  populateResources(sp){
+    const rng=this.rng; const clear=(x,y)=>!this.isBlocked(x*TILE+TILE/2,y*TILE+TILE/2,12,{ignoreResources:true,ignoreDecorations:true}) && Math.hypot(x-sp.x,y-sp.y)>7;
+    for(let i=0;i<210;i++){
+      const x=Math.floor(randRange(rng,4,this.w-4)), y=Math.floor(randRange(rng,4,this.h-4)); const t=this.tile(x,y); if(!clear(x,y)) continue;
+      if((t==='grass'||t==='grass2'||t==='meadow') && rng()<.62) this.addResource('tree',x*TILE+TILE/2,y*TILE+TILE*.74,{variant:Math.floor(rng()*2),seed:rng()*10});
+      else if((t==='grass'||t==='sand'||t==='stone'||t==='meadow') && rng()<.28) this.addResource('rock',x*TILE+TILE/2,y*TILE+TILE*.74,{seed:rng()*10});
+      else if((t==='grass2'||t==='meadow') && rng()<.55) this.addResource('mushroom',x*TILE+TILE/2,y*TILE+TILE*.74,{variant:Math.floor(rng()*2),seed:rng()*10});
     }
-    this.addBuilding('portal', 2*T+H, Math.floor(this.h/2)*T+T*.72, {exit:true, solid:false});
-    for(let i=0;i<6;i++) this.addEnemy('goblin', (8+i*4)*T+H, (5+(i%4)*5)*T+H, {dungeon:true});
-    this.addEnemy('boss', 30*T+H, Math.floor(this.h/2)*T+H, {boss:true, hp:190, dungeon:true});
-    this.addBuilding('chest', 32*T+H, Math.floor(this.h/2+3)*T+T*.72, {storage:{core:1, iron:3, banana:3}, locked:true, dungeonLoot:true});
-    this.addBuilding('bookshelf', 7*T+H, 4*T+T*.72, {solid:false,deco:true});
-    this.addBuilding('rug', 18*T+H, 14*T+T*.72, {solid:false,deco:true});
-    this.addBuilding('cauldron', 13*T+H, 10*T+T*.72, {solid:false,deco:true});
-    this.addBuilding('anvil', 24*T+H, 10*T+T*.72, {solid:false,deco:true});
-    this.addBuilding('spike_trap', 18*T+H, 7*T+T*.72, {solid:false,deco:true});
-    this.addBuilding('brazier', 22*T+H, 20*T+T*.72, {solid:false,deco:true});
+    for(let i=0;i<10;i++){ const a=i/10*Math.PI*2, r=8+i%3; this.addResource(i%3===0?'rock':i%3===1?'mushroom':'tree',this.spawn.x+Math.cos(a)*r*TILE,this.spawn.y+Math.sin(a)*r*TILE,{variant:i%2,seed:i}); }
   }
-  addResource(type,x,y,extra={}){ const hp = type==='tree'?4:(type==='iron'?6:(type==='rock'?4:2)); const r={id:nowId(),type,x,y,hp,maxHp:hp,variant:extra.variant||0}; this.resources.push(r); return r; }
-  addItem(type,x,y,qty=1){
-    if(qty<=0) return null;
-    for(const it of this.items){ if(it.type===type && distance(it.x,it.y,x,y)<24){ it.qty += qty; return it; } }
-    const it={id:nowId(),type,x,y,qty,vx:(Math.random()-.5)*22,vy:(Math.random()-.5)*22,t:0,seed:Math.random()*10}; this.items.push(it); return it;
-  }
-  addBuilding(type,x,y,extra={}){
-    const recipe=BUILD_RECIPES[type] || {}; const b={id:nowId(),type,x,y,solid: extra.solid ?? recipe.solid ?? false, hp: extra.hp ?? recipe.hp ?? 999, storage: extra.storage ? deepClone(extra.storage) : (recipe.storage?{}:undefined), queue: [], ...extra};
-    this.buildings.push(b); return b;
-  }
-  addBlueprint(type,x,y){
-    const recipe=BUILD_RECIPES[type]; if(!recipe) return null;
-    const bp={id:nowId(),type,x,y,cost:deepClone(recipe.cost), added:{}, progress:0, needProgress:recipe.progress, ready:false};
-    this.blueprints.push(bp); return bp;
-  }
-  addEnemy(type,x,y,extra={}){ const e={id:nowId(),type,x,y,hp:extra.hp || (type==='boss'?190:42), maxHp:extra.hp || (type==='boss'?190:42), vx:0,vy:0,walk:0,attackCd:0,hitFlash:0,...extra}; this.enemies.push(e); return e; }
-  isWalkableTile(tx,ty,opts={}){
-    const t=this.tile(tx,ty);
-    if(t==='walltile') return false;
-    if(t==='water') return !!opts.onRaft;
-    if(t==='shallow') return true;
-    if(t==='lava') return false;
-    return true;
-  }
-  isBlocked(px,py,r=10,opts={}){
-    const tx=Math.floor(px/TILE), ty=Math.floor(py/TILE);
-    const half=TILE/2;
-    for(let yy=-1;yy<=1;yy++) for(let xx=-1;xx<=1;xx++) if(!this.isWalkableTile(tx+xx,ty+yy,opts)){
-      const cx=(tx+xx)*TILE+half, cy=(ty+yy)*TILE+half;
-      if(Math.abs(px-cx)<half+r && Math.abs(py-cy)<half+r) return true;
+  populateAnimals(sp){
+    const rng=this.rng; const types=['duck','chicken','cow','sheep','pig'];
+    for(let i=0;i<26;i++){
+      const type=choice(rng,types); let x=this.spawn.x+randRange(rng,-420,460), y=this.spawn.y+randRange(rng,-330,360);
+      for(let tries=0; tries<30 && this.isBlocked(x,y,8,{ignoreAnimals:true}); tries++){ x=this.spawn.x+randRange(rng,-420,460); y=this.spawn.y+randRange(rng,-330,360); }
+      this.animals.push({id:nowId(),type,x,y,home:{x,y},walk:rng()*6,anim:rng()*4,facing:rng()<.5?'left':'right',wander:rng()*Math.PI*2,pause:rng()*1.8});
     }
-    for(const b of this.buildings){ if(b.solid && distance(px,py,b.x,b.y)<(typeRadius(b.type)+r)) return true; }
-    for(const b of this.blueprints){ if(distance(px,py,b.x,b.y)<(24+r)) return true; }
-    return false;
   }
-  nearestResource(x,y,pred,maxD=99999){ let best=null, bd=maxD*maxD; for(const r of this.resources){ if(pred && !pred(r)) continue; const d=dist2(x,y,r.x,r.y); if(d<bd){bd=d; best=r;} } return best; }
-  nearestItem(x,y,pred,maxD=99999){ let best=null, bd=maxD*maxD; for(const it of this.items){ if(pred && !pred(it)) continue; const d=dist2(x,y,it.x,it.y); if(d<bd){bd=d; best=it;} } return best; }
-  nearestBuilding(x,y,pred,maxD=99999){ let best=null, bd=maxD*maxD; for(const b of this.buildings){ if(pred && !pred(b)) continue; const d=dist2(x,y,b.x,b.y); if(d<bd){bd=d; best=b;} } return best; }
-  nearestBlueprint(x,y,pred,maxD=99999){ let best=null, bd=maxD*maxD; for(const b of this.blueprints){ if(pred && !pred(b)) continue; const d=dist2(x,y,b.x,b.y); if(d<bd){bd=d; best=b;} } return best; }
+  spawnEnemies(sp){ for(let i=0;i<12;i++){ const p=this.findFarWalkable(sp); if(p) this.enemies.push({id:nowId(),type:i%4===0?'skeleton':'goblin',x:p.x*TILE+TILE/2,y:p.y*TILE+TILE*.74,hp:i%4===0?90:36,maxHp:i%4===0?90:36,anim:0,attackCd:0,facing:'left'}); } }
+  findFarWalkable(sp){ let best=null,bd=-1; for(let i=0;i<900;i++){ const x=Math.floor(randRange(this.rng,4,this.w-4)),y=Math.floor(randRange(this.rng,4,this.h-4)); if(!this.isWalkableTile(x,y,{}) || this.isBlocked(x*TILE+TILE/2,y*TILE+TILE*.74,16)) continue; const d=Math.hypot(x-sp.x,y-sp.y); if(d>bd){bd=d;best={x,y};} } return best; }
+  addResource(type,x,y,extra={}){ const hp=type==='tree'?5:type==='rock'?5:1; const r={id:nowId(),type,x,y,hp,maxHp:hp,...extra}; this.resources.push(r); return r; }
+  addDecor(type,x,y,extra={}){ const d={id:nowId(),type,x,y,radius:type.startsWith('bush')?15:type.startsWith('crate')?12:10,...extra}; this.decorations.push(d); return d; }
+  addItem(type,x,y,qty=1){ const near=this.items.find(i=>i.type===type && distance(i.x,i.y,x,y)<24); if(near){ near.qty+=qty; return near; } const it={id:nowId(),type,x,y,qty,vx:(Math.random()-.5)*35,vy:(Math.random()-.5)*35,t:0}; this.items.push(it); return it; }
+  addBuilding(type,x,y,extra={}){ const b={id:nowId(),type,x,y,radius:BUILDINGS[type]?.radius||22,built:!!extra.built,progress:extra.built?1:0,...extra}; this.buildings.push(b); return b; }
   removeResource(id){ const i=this.resources.findIndex(r=>r.id===id); if(i>=0) this.resources.splice(i,1); }
   removeItem(id){ const i=this.items.findIndex(r=>r.id===id); if(i>=0) this.items.splice(i,1); }
-  removeEnemy(id){ const i=this.enemies.findIndex(r=>r.id===id); if(i>=0) this.enemies.splice(i,1); }
-  removeBlueprint(id){ const i=this.blueprints.findIndex(r=>r.id===id); if(i>=0) this.blueprints.splice(i,1); }
-  serialize(){ return {seed:this.seed,kind:this.kind,island:this.island,resources:this.resources,items:this.items,buildings:this.buildings,blueprints:this.blueprints,defeatedVault:this.defeatedVault}; }
+  isWalkableTile(tx,ty,opts={}){ const t=this.tile(tx,ty); if(t==='water') return !!opts.boat; return WALKABLE.has(t); }
+  isBlocked(px,py,r=8,opts={}){
+    const tx=Math.floor(px/TILE), ty=Math.floor(py/TILE); if(!this.isWalkableTile(tx,ty,opts)) return true;
+    if(!opts.ignoreBuildings) for(const b of this.buildings){ if(b.built && distance(px,py,b.x,b.y)<(b.radius+r)) return true; }
+    if(!opts.ignoreResources) for(const o of this.resources){ if(distance(px,py,o.x,o.y)<(o.type==='tree'?24:10)+r) return true; }
+    if(!opts.ignoreDecorations) for(const d of this.decorations||[]){ if(d.type==='coracleWater') continue; if(distance(px,py,d.x,d.y)<(d.radius||10)+r*.5) return true; }
+    if(!opts.ignoreAnimals) for(const a of this.animals||[]){ if(distance(px,py,a.x,a.y)<(a.type==='cow'?14:9)+r*.35) return true; }
+    return false;
+  }
+  nearestResource(x,y,maxD=99999,pred=null){ let best=null,bd=maxD*maxD; for(const r of this.resources){ if(pred&&!pred(r)) continue; const d=dist2(x,y,r.x,r.y); if(d<bd){bd=d;best=r;} } return best; }
+  nearestItem(x,y,maxD=99999){ let best=null,bd=maxD*maxD; for(const it of this.items){ const d=dist2(x,y,it.x,it.y); if(d<bd){bd=d;best=it;} } return best; }
+  nearestBuilding(x,y,maxD=99999,pred=null){ let best=null,bd=maxD*maxD; for(const b of this.buildings){ if(pred&&!pred(b)) continue; const d=dist2(x,y,b.x,b.y); if(d<bd){bd=d;best=b;} } return best; }
+  nearestCrop(x,y,maxD=99999){ let best=null,bd=maxD*maxD; for(const c of this.crops){ const d=dist2(x,y,c.x,c.y); if(d<bd){bd=d;best=c;} } return best; }
   findPath(sx,sy,gx,gy,opts={}){
-    const radius=opts.radius||9;
-    const start={x:clamp(Math.floor(sx/TILE),0,this.w-1),y:clamp(Math.floor(sy/TILE),0,this.h-1)};
-    let goal={x:clamp(Math.floor(gx/TILE),0,this.w-1),y:clamp(Math.floor(gy/TILE),0,this.h-1)};
-    const idx=(x,y)=>y*this.w+x, total=this.w*this.h;
-    const openCell=(x,y,allowEndpoint=false)=>{
-      if(!this.inBounds(x,y) || !this.isWalkableTile(x,y,opts)) return false;
-      if(allowEndpoint && x===start.x&&y===start.y) return true;
-      return !this.isBlocked(x*TILE+TILE/2,y*TILE+TILE/2,radius,opts);
-    };
-    if(!openCell(goal.x,goal.y,true)){
-      let found=null, best=999999;
-      for(let r=1;r<=6;r++) for(let yy=-r;yy<=r;yy++) for(let xx=-r;xx<=r;xx++){
-        if(Math.abs(xx)!==r && Math.abs(yy)!==r) continue;
-        const tx=goal.x+xx, ty=goal.y+yy;
-        if(openCell(tx,ty,false)){
-          const score=Math.hypot(tx-goal.x,ty-goal.y)+Math.hypot(tx-start.x,ty-start.y)*.03;
-          if(score<best){ best=score; found={x:tx,y:ty}; }
-        }
-      }
+    const start={x:clamp(Math.floor(sx/TILE),0,this.w-1),y:clamp(Math.floor(sy/TILE),0,this.h-1)}; let goal={x:clamp(Math.floor(gx/TILE),0,this.w-1),y:clamp(Math.floor(gy/TILE),0,this.h-1)};
+    const total=this.w*this.h, idx=(x,y)=>y*this.w+x, radius=opts.radius||8;
+    const openCell=(x,y,allowStart=false)=>{ if(!this.inBounds(x,y)||!this.isWalkableTile(x,y,opts)) return false; if(allowStart&&x===start.x&&y===start.y) return true; return !this.isBlocked(x*TILE+TILE/2,y*TILE+TILE*.74,radius,opts); };
+    if(!openCell(goal.x,goal.y,false)){
+      let found=null, best=Infinity; for(let r=1;r<=8;r++) for(let yy=-r;yy<=r;yy++) for(let xx=-r;xx<=r;xx++){ if(Math.abs(xx)!==r&&Math.abs(yy)!==r) continue; const x=goal.x+xx,y=goal.y+yy; if(openCell(x,y,false)){ const s=Math.hypot(x-goal.x,y-goal.y); if(s<best){best=s; found={x,y};}} }
       if(found) goal=found; else return [];
     }
-    const came=new Int32Array(total); came.fill(-1);
-    const qx=new Int16Array(total), qy=new Int16Array(total);
-    let head=0, tail=0; qx[tail]=start.x; qy[tail++]=start.y; came[idx(start.x,start.y)]=idx(start.x,start.y);
-    const dirs=[[1,0],[-1,0],[0,1],[0,-1]]; let foundIdx=-1, visited=0, maxNodes=opts.maxNodes||1600;
-    while(head<tail && visited++<maxNodes){
-      const x=qx[head], y=qy[head++];
-      if(x===goal.x && y===goal.y){ foundIdx=idx(x,y); break; }
-      dirs.sort((a,b)=>(Math.abs(goal.x-(x+a[0]))+Math.abs(goal.y-(y+a[1])))-(Math.abs(goal.x-(x+b[0]))+Math.abs(goal.y-(y+b[1]))));
-      for(const [dx,dy] of dirs){
-        const nx=x+dx, ny=y+dy; if(!openCell(nx,ny,false)) continue;
-        const ni=idx(nx,ny); if(came[ni]!==-1) continue;
-        came[ni]=idx(x,y); qx[tail]=nx; qy[tail++]=ny;
-      }
+    const came=new Int32Array(total); came.fill(-1); const g=new Float32Array(total); g.fill(Infinity); const f=new Float32Array(total); f.fill(Infinity); const closed=new Uint8Array(total); const open=[idx(start.x,start.y)]; came[open[0]]=open[0]; g[open[0]]=0;
+    const h=(x,y)=>{const dx=Math.abs(goal.x-x),dy=Math.abs(goal.y-y); return 10*(dx+dy)+(14-20)*Math.min(dx,dy);}; f[open[0]]=h(start.x,start.y); const dirs=[[1,0,10],[-1,0,10],[0,1,10],[0,-1,10],[1,1,14],[-1,1,14],[1,-1,14],[-1,-1,14]]; let found=-1, steps=0;
+    while(open.length&&steps++<(opts.maxNodes||5200)){
+      let bi=0; for(let i=1;i<open.length;i++) if(f[open[i]]<f[open[bi]]) bi=i; const cur=open.splice(bi,1)[0]; if(closed[cur]) continue; closed[cur]=1; const x=cur%this.w,y=(cur/this.w)|0; if(x===goal.x&&y===goal.y){found=cur;break;}
+      for(const [dx,dy,cost] of dirs){ const nx=x+dx,ny=y+dy; if(!openCell(nx,ny,false)) continue; if(dx&&dy&&(!openCell(x+dx,y,false)||!openCell(x,y+dy,false))) continue; const ni=idx(nx,ny); if(closed[ni]) continue; const tile=this.tile(nx,ny); const pen=tile==='shallow'?6:tile==='sand'?1:tile==='path'?-2:0; const tg=g[cur]+cost+pen; if(tg<g[ni]){came[ni]=cur; g[ni]=tg; f[ni]=tg+h(nx,ny); if(!open.includes(ni)) open.push(ni);} }
     }
-    if(foundIdx<0) return [];
-    const cells=[]; let cur=foundIdx;
-    while(cur!==came[cur] && cells.length<96){ const x=cur%this.w, y=Math.floor(cur/this.w); cells.push({x:x*TILE+TILE/2,y:y*TILE+TILE/2}); cur=came[cur]; }
-    cells.reverse(); return cells;
+    if(found<0) return [];
+    const cells=[]; let c=found; while(c!==came[c]&&cells.length<220){ const x=c%this.w,y=(c/this.w)|0; cells.push({x:x*TILE+TILE/2,y:y*TILE+TILE*.74}); c=came[c]; } cells.reverse(); return this.smoothPath(cells,radius,opts);
   }
-  static fromData(data={}){ const w=new World(finiteNumber(data.seed,Date.now()&0x7fffffff),data.kind==='dungeon'?'dungeon':'overworld',finiteNumber(data.island,1)); w.resources=Array.isArray(data.resources)?data.resources:[]; w.items=Array.isArray(data.items)?data.items:[]; w.buildings=Array.isArray(data.buildings)?data.buildings:[]; w.blueprints=Array.isArray(data.blueprints)?data.blueprints:[]; w.enemies=[]; w.defeatedVault=!!data.defeatedVault; return w; }
+  lineBlocked(x1,y1,x2,y2,r,opts){ const steps=Math.max(1,Math.ceil(distance(x1,y1,x2,y2)/12)); for(let i=1;i<=steps;i++){ const t=i/steps; if(this.isBlocked(x1+(x2-x1)*t,y1+(y2-y1)*t,r,opts)) return true; } return false; }
+  smoothPath(path,r,opts){ if(path.length<3) return path; const out=[path[0]]; let anchor=path[0]; for(let i=1;i<path.length-1;i++){ if(this.lineBlocked(anchor.x,anchor.y,path[i+1].x,path[i+1].y,r,opts)){ anchor=path[i]; out.push(anchor); } } out.push(path[path.length-1]); return out; }
+  serialize(){ return {seed:this.seed,tiles:this.tiles,resources:this.resources,items:this.items,buildings:this.buildings,animals:this.animals,enemies:this.enemies,crops:this.crops,decorations:this.decorations,spawn:this.spawn}; }
+  fromData(d){ this.seed=finiteNumber(d.seed,this.seed)|0; this.tiles=Array.isArray(d.tiles)&&d.tiles.length===this.w*this.h?d.tiles:this.tiles; this.resources=Array.isArray(d.resources)?d.resources:[]; this.items=Array.isArray(d.items)?d.items:[]; this.buildings=Array.isArray(d.buildings)?d.buildings:[]; this.animals=Array.isArray(d.animals)?d.animals:[]; this.enemies=Array.isArray(d.enemies)?d.enemies:[]; this.crops=Array.isArray(d.crops)?d.crops:[]; this.decorations=Array.isArray(d.decorations)?d.decorations:[]; this.spawn=d.spawn||this.spawn; }
+  static fromData(d){ return new World(finiteNumber(d?.seed,Date.now()&0x7fffffff),d); }
 }
-export function typeRadius(type){ return {chest:24,workbench:32,campfire:20,bed:30,wall:32,forge:30,raft:42,vault:46,galleon:58,cage:28,totem:22}[type] || 20; }
