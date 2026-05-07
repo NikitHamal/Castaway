@@ -135,7 +135,7 @@ export class World {
     if(!opts.ignoreBuildings) for(const b of this.buildings){ if(b.built && distance(px,py,b.x,b.y)<(b.radius+r)) return true; }
     if(!opts.ignoreResources) for(const o of this.resources){ if(distance(px,py,o.x,o.y)<(o.type==='tree'?24:10)+r) return true; }
     if(!opts.ignoreDecorations) for(const d of this.decorations||[]){ if(d.type==='coracleWater') continue; if(distance(px,py,d.x,d.y)<(d.radius||10)+r*.5) return true; }
-    if(!opts.ignoreAnimals) for(const a of this.animals||[]){ if(distance(px,py,a.x,a.y)<(a.type==='cow'?14:9)+r*.35) return true; }
+    if(!opts.ignoreAnimals) for(const a of this.animals||[]){ if(dist2(px,py,a.x,a.y)<((a.type==='cow'?14:9)+r*.35)**2) return true; }
     return false;
   }
   nearestResource(x,y,maxD=99999,pred=null){ let best=null,bd=maxD*maxD; for(const r of this.resources){ if(pred&&!pred(r)) continue; const d=dist2(x,y,r.x,r.y); if(d<bd){bd=d;best=r;} } return best; }
