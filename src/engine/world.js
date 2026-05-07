@@ -96,11 +96,38 @@ export class World {
       if(Math.abs(tx-cx)>Math.abs(ty-cy)) cx+=Math.sign(tx-cx); else cy+=Math.sign(ty-cy);
     }
   }
-  findNearestTile(cx,cy,pred){ let best=null,bd=Infinity; for(let y=1;y<this.h-1;y++) for(let x=1;x<this.w-1;x++){ if(!pred(this.tile(x,y))) continue; const d=(x-cx)**2+(y-cy)**2; if(d<bd){bd=d;best={x,y};} } return best; }
-  nearestTiles(cx,cy,pred,count=3,minSep=10){
-    const all=[]; for(let y=1;y<this.h-1;y++) for(let x=1;x<this.w-1;x++){ if(pred(this.tile(x,y))) all.push({x,y,d:(x-cx)**2+(y-cy)**2}); }
-    all.sort((a,b)=>a.d-b.d); const out=[];
-    for(const p of all){ if(out.every(o=>Math.hypot(o.x-p.x,o.y-p.y)>=minSep)){ out.push(p); if(out.length>=count) break; } }
+  findNearestTile(cx, cy, pred) {
+    let best = null, bd = Infinity;
+    for (let y = 1; y < this.h - 1; y++) {
+      for (let x = 1; x < this.w - 1; x++) {
+        if (!pred(this.tile(x, y))) continue;
+        const d = (x - cx) ** 2 + (y - cy) ** 2;
+        if (d < bd) {
+          bd = d;
+          best = { x, y };
+        }
+      }
+    }
+    return best;
+  }
+
+  nearestTiles(cx, cy, pred, count = 3, minSep = 10) {
+    const all = [];
+    for (let y = 1; y < this.h - 1; y++) {
+      for (let x = 1; x < this.w - 1; x++) {
+        if (pred(this.tile(x, y))) {
+          all.push({ x, y, d: (x - cx) ** 2 + (y - cy) ** 2 });
+        }
+      }
+    }
+    all.sort((a, b) => a.d - b.d);
+    const out = [];
+    for (const p of all) {
+      if (out.every(o => Math.hypot(o.x - p.x, o.y - p.y) >= minSep)) {
+        out.push(p);
+        if (out.length >= count) break;
+      }
+    }
     return out;
   }
   populateResources(sp){
@@ -138,30 +165,246 @@ export class World {
     if(!opts.ignoreAnimals) for(const a of this.animals||[]){ if(distance(px,py,a.x,a.y)<(a.type==='cow'?14:9)+r*.35) return true; }
     return false;
   }
-  nearestResource(x,y,maxD=99999,pred=null){ let best=null,bd=maxD*maxD; for(const r of this.resources){ if(pred&&!pred(r)) continue; const d=dist2(x,y,r.x,r.y); if(d<bd){bd=d;best=r;} } return best; }
-  nearestItem(x,y,maxD=99999){ let best=null,bd=maxD*maxD; for(const it of this.items){ const d=dist2(x,y,it.x,it.y); if(d<bd){bd=d;best=it;} } return best; }
-  nearestBuilding(x,y,maxD=99999,pred=null){ let best=null,bd=maxD*maxD; for(const b of this.buildings){ if(pred&&!pred(b)) continue; const d=dist2(x,y,b.x,b.y); if(d<bd){bd=d;best=b;} } return best; }
-  nearestCrop(x,y,maxD=99999){ let best=null,bd=maxD*maxD; for(const c of this.crops){ const d=dist2(x,y,c.x,c.y); if(d<bd){bd=d;best=c;} } return best; }
-  findPath(sx,sy,gx,gy,opts={}){
-    const start={x:clamp(Math.floor(sx/TILE),0,this.w-1),y:clamp(Math.floor(sy/TILE),0,this.h-1)}; let goal={x:clamp(Math.floor(gx/TILE),0,this.w-1),y:clamp(Math.floor(gy/TILE),0,this.h-1)};
-    const total=this.w*this.h, idx=(x,y)=>y*this.w+x, radius=opts.radius||8;
-    const openCell=(x,y,allowStart=false)=>{ if(!this.inBounds(x,y)||!this.isWalkableTile(x,y,opts)) return false; if(allowStart&&x===start.x&&y===start.y) return true; return !this.isBlocked(x*TILE+TILE/2,y*TILE+TILE*.74,radius,opts); };
-    if(!openCell(goal.x,goal.y,false)){
-      let found=null, best=Infinity; for(let r=1;r<=8;r++) for(let yy=-r;yy<=r;yy++) for(let xx=-r;xx<=r;xx++){ if(Math.abs(xx)!==r&&Math.abs(yy)!==r) continue; const x=goal.x+xx,y=goal.y+yy; if(openCell(x,y,false)){ const s=Math.hypot(x-goal.x,y-goal.y); if(s<best){best=s; found={x,y};}} }
-      if(found) goal=found; else return [];
+  nearestResource(x, y, maxD = 99999, pred = null) {
+    let best = null, bd = maxD * maxD;
+    for (const r of this.resources) {
+      if (pred && !pred(r)) continue;
+      const d = dist2(x, y, r.x, r.y);
+      if (d < bd) {
+        bd = d;
+        best = r;
+      }
     }
-    const came=new Int32Array(total); came.fill(-1); const g=new Float32Array(total); g.fill(Infinity); const f=new Float32Array(total); f.fill(Infinity); const closed=new Uint8Array(total); const open=[idx(start.x,start.y)]; came[open[0]]=open[0]; g[open[0]]=0;
-    const h=(x,y)=>{const dx=Math.abs(goal.x-x),dy=Math.abs(goal.y-y); return 10*(dx+dy)+(14-20)*Math.min(dx,dy);}; f[open[0]]=h(start.x,start.y); const dirs=[[1,0,10],[-1,0,10],[0,1,10],[0,-1,10],[1,1,14],[-1,1,14],[1,-1,14],[-1,-1,14]]; let found=-1, steps=0;
-    while(open.length&&steps++<(opts.maxNodes||5200)){
-      let bi=0; for(let i=1;i<open.length;i++) if(f[open[i]]<f[open[bi]]) bi=i; const cur=open.splice(bi,1)[0]; if(closed[cur]) continue; closed[cur]=1; const x=cur%this.w,y=(cur/this.w)|0; if(x===goal.x&&y===goal.y){found=cur;break;}
-      for(const [dx,dy,cost] of dirs){ const nx=x+dx,ny=y+dy; if(!openCell(nx,ny,false)) continue; if(dx&&dy&&(!openCell(x+dx,y,false)||!openCell(x,y+dy,false))) continue; const ni=idx(nx,ny); if(closed[ni]) continue; const tile=this.tile(nx,ny); const pen=tile==='shallow'?6:tile==='sand'?1:tile==='path'?-2:0; const tg=g[cur]+cost+pen; if(tg<g[ni]){came[ni]=cur; g[ni]=tg; f[ni]=tg+h(nx,ny); if(!open.includes(ni)) open.push(ni);} }
-    }
-    if(found<0) return [];
-    const cells=[]; let c=found; while(c!==came[c]&&cells.length<220){ const x=c%this.w,y=(c/this.w)|0; cells.push({x:x*TILE+TILE/2,y:y*TILE+TILE*.74}); c=came[c]; } cells.reverse(); return this.smoothPath(cells,radius,opts);
+    return best;
   }
-  lineBlocked(x1,y1,x2,y2,r,opts){ const steps=Math.max(1,Math.ceil(distance(x1,y1,x2,y2)/12)); for(let i=1;i<=steps;i++){ const t=i/steps; if(this.isBlocked(x1+(x2-x1)*t,y1+(y2-y1)*t,r,opts)) return true; } return false; }
-  smoothPath(path,r,opts){ if(path.length<3) return path; const out=[path[0]]; let anchor=path[0]; for(let i=1;i<path.length-1;i++){ if(this.lineBlocked(anchor.x,anchor.y,path[i+1].x,path[i+1].y,r,opts)){ anchor=path[i]; out.push(anchor); } } out.push(path[path.length-1]); return out; }
-  serialize(){ return {seed:this.seed,tiles:this.tiles,resources:this.resources,items:this.items,buildings:this.buildings,animals:this.animals,enemies:this.enemies,crops:this.crops,decorations:this.decorations,spawn:this.spawn}; }
-  fromData(d){ this.seed=finiteNumber(d.seed,this.seed)|0; this.tiles=Array.isArray(d.tiles)&&d.tiles.length===this.w*this.h?d.tiles:this.tiles; this.resources=Array.isArray(d.resources)?d.resources:[]; this.items=Array.isArray(d.items)?d.items:[]; this.buildings=Array.isArray(d.buildings)?d.buildings:[]; this.animals=Array.isArray(d.animals)?d.animals:[]; this.enemies=Array.isArray(d.enemies)?d.enemies:[]; this.crops=Array.isArray(d.crops)?d.crops:[]; this.decorations=Array.isArray(d.decorations)?d.decorations:[]; this.spawn=d.spawn||this.spawn; }
+
+  nearestItem(x, y, maxD = 99999) {
+    let best = null, bd = maxD * maxD;
+    for (const it of this.items) {
+      const d = dist2(x, y, it.x, it.y);
+      if (d < bd) {
+        bd = d;
+        best = it;
+      }
+    }
+    return best;
+  }
+
+  nearestBuilding(x, y, maxD = 99999, pred = null) {
+    let best = null, bd = maxD * maxD;
+    for (const b of this.buildings) {
+      if (pred && !pred(b)) continue;
+      const d = dist2(x, y, b.x, b.y);
+      if (d < bd) {
+        bd = d;
+        best = b;
+      }
+    }
+    return best;
+  }
+
+  nearestCrop(x, y, maxD = 99999) {
+    let best = null, bd = maxD * maxD;
+    for (const c of this.crops) {
+      const d = dist2(x, y, c.x, c.y);
+      if (d < bd) {
+        bd = d;
+        best = c;
+      }
+    }
+    return best;
+  }
+
+  _getHeuristic(x1, y1, x2, y2) {
+    const dx = Math.abs(x1 - x2);
+    const dy = Math.abs(y1 - y2);
+    return 10 * (dx + dy) + (14 - 20) * Math.min(dx, dy);
+  }
+
+  _findClosestOpenCell(goal, start, radius, opts) {
+    if (this._isOpenCell(goal.x, goal.y, start, radius, opts, false)) return goal;
+
+    let bestCell = null;
+    let bestDist = Infinity;
+
+    for (let r = 1; r <= 8; r++) {
+      for (let yy = -r; yy <= r; yy++) {
+        for (let xx = -r; xx <= r; xx++) {
+          if (Math.abs(xx) !== r && Math.abs(yy) !== r) continue;
+          const x = goal.x + xx;
+          const y = goal.y + yy;
+
+          if (this._isOpenCell(x, y, start, radius, opts, false)) {
+            const d = Math.hypot(x - goal.x, y - goal.y);
+            if (d < bestDist) {
+              bestDist = d;
+              bestCell = { x, y };
+            }
+          }
+        }
+      }
+      if (bestCell) return bestCell;
+    }
+    return null;
+  }
+
+  _isOpenCell(x, y, start, radius, opts, allowStart = false) {
+    if (!this.inBounds(x, y) || !this.isWalkableTile(x, y, opts)) return false;
+    if (allowStart && x === start.x && y === start.y) return true;
+    return !this.isBlocked(x * TILE + TILE / 2, y * TILE + TILE * 0.74, radius, opts);
+  }
+
+  _reconstructPath(foundIdx, cameFrom) {
+    const cells = [];
+    let current = foundIdx;
+    while (current !== cameFrom[current] && cells.length < 220) {
+      const x = current % this.w;
+      const y = (current / this.w) | 0;
+      cells.push({ x: x * TILE + TILE / 2, y: y * TILE + TILE * 0.74 });
+      current = cameFrom[current];
+    }
+    cells.reverse();
+    return cells;
+  }
+
+  findPath(sx, sy, gx, gy, opts = {}) {
+    const start = {
+      x: clamp(Math.floor(sx / TILE), 0, this.w - 1),
+      y: clamp(Math.floor(sy / TILE), 0, this.h - 1)
+    };
+    let goal = {
+      x: clamp(Math.floor(gx / TILE), 0, this.w - 1),
+      y: clamp(Math.floor(gy / TILE), 0, this.h - 1)
+    };
+
+    const total = this.w * this.h;
+    const idx = (x, y) => y * this.w + x;
+    const radius = opts.radius || 8;
+
+    const finalGoal = this._findClosestOpenCell(goal, start, radius, opts);
+    if (!finalGoal) return [];
+    goal = finalGoal;
+
+    const cameFrom = new Int32Array(total).fill(-1);
+    const gScore = new Float32Array(total).fill(Infinity);
+    const fScore = new Float32Array(total).fill(Infinity);
+    const closedSet = new Uint8Array(total);
+
+    const startIdx = idx(start.x, start.y);
+    const openSet = [startIdx];
+    cameFrom[startIdx] = startIdx;
+    gScore[startIdx] = 0;
+    fScore[startIdx] = this._getHeuristic(start.x, start.y, goal.x, goal.y);
+
+    const dirs = [
+      [1, 0, 10], [-1, 0, 10], [0, 1, 10], [0, -1, 10],
+      [1, 1, 14], [-1, 1, 14], [1, -1, 14], [-1, -1, 14]
+    ];
+
+    let foundIdx = -1;
+    let steps = 0;
+    const maxNodes = opts.maxNodes || 5200;
+
+    while (openSet.length && steps++ < maxNodes) {
+      let bestIdx = 0;
+      for (let i = 1; i < openSet.length; i++) {
+        if (fScore[openSet[i]] < fScore[openSet[bestIdx]]) bestIdx = i;
+      }
+
+      const currentIdx = openSet.splice(bestIdx, 1)[0];
+      if (closedSet[currentIdx]) continue;
+      closedSet[currentIdx] = 1;
+
+      const x = currentIdx % this.w;
+      const y = (currentIdx / this.w) | 0;
+
+      if (x === goal.x && y === goal.y) {
+        foundIdx = currentIdx;
+        break;
+      }
+
+      for (const [dx, dy, cost] of dirs) {
+        const nx = x + dx;
+        const ny = y + dy;
+
+        if (!this._isOpenCell(nx, ny, start, radius, opts, false)) continue;
+        // Check for diagonal cutting
+        if (dx && dy && (!this._isOpenCell(x + dx, y, start, radius, opts, false) || !this._isOpenCell(x, y + dy, start, radius, opts, false))) continue;
+
+        const neighborIdx = idx(nx, ny);
+        if (closedSet[neighborIdx]) continue;
+
+        const tile = this.tile(nx, ny);
+        const penalty = tile === 'shallow' ? 6 : tile === 'sand' ? 1 : tile === 'path' ? -2 : 0;
+        const tentativeGScore = gScore[currentIdx] + cost + penalty;
+
+        if (tentativeGScore < gScore[neighborIdx]) {
+          cameFrom[neighborIdx] = currentIdx;
+          gScore[neighborIdx] = tentativeGScore;
+          fScore[neighborIdx] = tentativeGScore + this._getHeuristic(nx, ny, goal.x, goal.y);
+          if (!openSet.includes(neighborIdx)) {
+            openSet.push(neighborIdx);
+          }
+        }
+      }
+    }
+
+    if (foundIdx < 0) return [];
+
+    const path = this._reconstructPath(foundIdx, cameFrom);
+    return this.smoothPath(path, radius, opts);
+  }
+  lineBlocked(x1, y1, x2, y2, r, opts) {
+    const steps = Math.max(1, Math.ceil(distance(x1, y1, x2, y2) / 12));
+    for (let i = 1; i <= steps; i++) {
+      const t = i / steps;
+      if (this.isBlocked(x1 + (x2 - x1) * t, y1 + (y2 - y1) * t, r, opts)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  smoothPath(path, r, opts) {
+    if (path.length < 3) return path;
+    const out = [path[0]];
+    let anchor = path[0];
+    for (let i = 1; i < path.length - 1; i++) {
+      if (this.lineBlocked(anchor.x, anchor.y, path[i + 1].x, path[i + 1].y, r, opts)) {
+        anchor = path[i];
+        out.push(anchor);
+      }
+    }
+    out.push(path[path.length - 1]);
+    return out;
+  }
+
+  serialize() {
+    return {
+      seed: this.seed,
+      tiles: this.tiles,
+      resources: this.resources,
+      items: this.items,
+      buildings: this.buildings,
+      animals: this.animals,
+      enemies: this.enemies,
+      crops: this.crops,
+      decorations: this.decorations,
+      spawn: this.spawn
+    };
+  }
+
+  fromData(d) {
+    this.seed = finiteNumber(d.seed, this.seed) | 0;
+    this.tiles = Array.isArray(d.tiles) && d.tiles.length === this.w * this.h ? d.tiles : this.tiles;
+    this.resources = Array.isArray(d.resources) ? d.resources : [];
+    this.items = Array.isArray(d.items) ? d.items : [];
+    this.buildings = Array.isArray(d.buildings) ? d.buildings : [];
+    this.animals = Array.isArray(d.animals) ? d.animals : [];
+    this.enemies = Array.isArray(d.enemies) ? d.enemies : [];
+    this.crops = Array.isArray(d.crops) ? d.crops : [];
+    this.decorations = Array.isArray(d.decorations) ? d.decorations : [];
+    this.spawn = d.spawn || this.spawn;
+  }
   static fromData(d){ return new World(finiteNumber(d?.seed,Date.now()&0x7fffffff),d); }
 }
